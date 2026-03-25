@@ -1,0 +1,103 @@
+syntax = "proto3";
+
+package peerdb;
+
+message PostgresConfig {
+  string host = 1;
+  uint32 port = 2;
+  string user = 3;
+  string password = 4;
+  string database = 5;
+  string ssl_mode = 6;
+}
+
+message ClickhouseConfig {
+  string host = 1;
+  uint32 port = 2;
+  string user = 3;
+  string password = 4;
+  string database = 5;
+}
+
+message TableMapping {
+  // source table name
+  string source = 1;
+  // destination table name (if you want to rename it, otherwise it will be the same as source)
+  string destination = 2;
+  // list of columns to exclude from replication (if empty, all columns will be replicated)
+  repeated string exclude_columns = 3;
+}
+
+enum PeerType {
+  UNSPECIFIED = 0;
+  POSTGRES = 1;
+  CLICKHOUSE = 2;
+}
+
+message Peer {
+  string id = 1; // output only, server-assigned
+  string name = 2;
+  oneof config {
+    PostgresConfig postgres_config = 3;
+    ClickhouseConfig clickhouse_config = 4;
+  }
+  PeerType type = 5;
+}
+
+message CreatePeerRequest {
+  Peer peer = 1;
+}
+
+message PostgresSourceConfig {
+  // name of the publication to subscribe to, if not provided it will be created automatically
+  string publication_name = 1;
+}
+
+message CdcFlowConfig {
+  // Optional source-to-destination table name overrides. Tables not listed here keep their source name at the destination.
+  repeated TableMapping table_mappings = 1;
+  // Schema-qualified table names to replicate (e.g. "public.users"). Controls publication scope.
+  // If empty, all tables will be replicated.
+  repeated string tables = 2;
+  oneof source_config {
+    PostgresSourceConfig postgres_source = 3;
+  }
+}
+
+message CDCFlow {
+  string id = 1; // output only, server-assigned
+  string name = 2;
+  string source = 3;
+  string destination = 4;
+  CdcFlowConfig config = 5;
+}
+
+message CreateCDCFlowRequest {
+  CDCFlow cdc_flow = 1;
+}
+
+message CreateResponse {
+  string id = 1;
+}
+
+message GetPeersRequest {}
+
+message GetPeersResponse {
+  repeated Peer peers = 1;
+}
+
+message GetCDCFlowsRequest {}
+
+message GetCDCFlowsResponse {
+  repeated CDCFlow cdc_flows = 1;
+}
+
+service PeerdbService {
+  // peers
+  rpc CreatePeer(CreatePeerRequest) returns (CreateResponse) {}
+  rpc GetPeers(GetPeersRequest) returns(GetPeersResponse) {}
+
+  // flows
+  rpc CreateCDCFlow(CreateCDCFlowRequest) returns (CreateResponse) {}
+  rpc GetCDCFlows(GetCDCFlowsRequest) returns (GetCDCFlowsResponse) {}
+}

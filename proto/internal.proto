@@ -1,0 +1,40 @@
+syntax = "proto3";
+
+package peerdb;
+
+enum QType {
+  QTYPE_UNSPECIFIED = 0;
+  QTYPE_BOOL = 1;
+  QTYPE_INT16 = 2;
+  QTYPE_INT32 = 3;
+  QTYPE_INT64 = 4;
+  QTYPE_FLOAT32 = 5;
+  QTYPE_FLOAT64 = 6;
+  QTYPE_STRING = 7;
+  QTYPE_BYTES = 8;
+  QTYPE_DATE = 9;
+  QTYPE_TIME = 10;
+  QTYPE_TIMESTAMP = 11;
+  QTYPE_TIMESTAMPTZ = 12;
+  QTYPE_UUID = 13;
+  QTYPE_JSON = 14;
+  QTYPE_NUMERIC = 15;
+  QTYPE_ENUM = 16;
+}
+
+message ColumnSchema {
+  string name = 1;
+  QType type = 2;
+  bool nullable = 3;
+  bool primary_key = 4;
+  // for numeric types
+  int32 precision = 5;
+  int32 scale = 6;
+  repeated string enum_values = 7;
+}
+
+message TableSchema {
+  string schema = 1;
+  string name = 2;
+  repeated ColumnSchema columns = 3;
+}

@@ -1,0 +1,168 @@
+package peers
+
+import (
+	"context"
+	"encoding/hex"
+	"fmt"
+	"peerdb-playground/errs"
+	"peerdb-playground/gen"
+	"peerdb-playground/pkg/clickhouse"
+	"peerdb-playground/pkg/crypto"
+	"peerdb-playground/pkg/postgres"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+	"google.golang.org/protobuf/proto"
+)
+
+type Service struct {
+	pg            *pgxpool.Pool
+	encryptionKey []byte
+}
+
+func NewService(pg *pgxpool.Pool, encryptionKey string) (*Service, error) {
+	key, err := hex.DecodeString(encryptionKey)
+	if err != nil {
+		return nil, fmt.Errorf("invalid encryption key: must be hex-encoded: %w", err)
+	}
+	switch len(key) {
+	case 16, 24, 32:
+	default:
+		return nil, fmt.Errorf("invalid encryption key length %d: must be 16, 24, or 32 bytes", len(key))
+	}
+	return &Service{
+		pg:            pg,
+		encryptionKey: key,
+	}, nil
+}
+
+func (s *Service) encryptConfig(peer *gen.Peer) ([]byte, error) {
+	var configMsg proto.Message
+	switch peer.Config.(type) {
+	case *gen.Peer_PostgresConfig:
+		configMsg = peer.GetPostgresConfig()
+	case *gen.Peer_ClickhouseConfig:
+		configMsg = peer.GetClickhouseConfig()
+	default:
+		return nil, fmt.Errorf("unknown peer config type")
+	}
+
+	plaintext, err := proto.Marshal(configMsg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal config: %w", err)
+	}
+
+	encrypted, err := crypto.Encrypt(s.encryptionKey, plaintext)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encrypt config: %w", err)
+	}
+
+	return encrypted, nil
+}
+
+func (s *Service) ValidatePeer(ctx context.Context, peer *gen.Peer) error {
+	if peer.Name == "" {
+		return errs.BadRequest.WithMessage("name can't be empty")
+	}
+	if peer.Type == gen.PeerType_UNSPECIFIED {
+		return errs.BadRequest.WithMessage("type must be specified")
+	}
+	if peer.Config == nil {
+		return errs.BadRequest.WithMessage("config must be specified")
+	}
+
+	switch peer.Config.(type) {
+	case *gen.Peer_PostgresConfig:
+		cfg := peer.GetPostgresConfig()
+		conn, err := postgres.ConnectFromProto(ctx, cfg)
+		if err != nil {
+			return errs.BadRequest.WithMessage("failed to connect to postgres").WithDetail(err)
+		}
+		defer conn.Close(ctx)
+	case *gen.Peer_ClickhouseConfig:
+		cfg := peer.GetClickhouseConfig()
+		conn, err := clickhouse.ConnectFromProto(ctx, cfg)
+		if err != nil {
+			return errs.BadRequest.WithMessage("failed to connect to clickhouse").WithDetail(err)
+		}
+		defer conn.Close()
+	default:
+		return errs.BadRequest.WithMessage("unknown peer config type")
+	}
+
+	return nil
+}
+
+func (s *Service) CreatePeer(ctx context.Context, peer *gen.Peer) (string, error) {
+	err := s.ValidatePeer(ctx, peer)
+	if err != nil {
+		return "", err
+	}
+
+	encryptedConfig, err := s.encryptConfig(peer)
+	if err != nil {
+		return "", fmt.Errorf("failed to encrypt peer config: %w", err)
+	}
+
+	sql, args, err := postgres.Sql.
+		Insert("peers").
+		Columns("name", "config", "type").
+		Values(peer.Name, encryptedConfig, peer.Type).
+		Suffix("RETURNING id").
+		ToSql()
+	if err != nil {
+		return "", fmt.Errorf("failed to build query: %w", err)
+	}
+
+	var id string
+	err = s.pg.QueryRow(ctx, sql, args...).Scan(&id)
+	if err != nil {
+		return "", fmt.Errorf("failed to execute query: %w", err)
+	}
+
+	return id, nil
+}
+
+func (s *Service) GetPeer(ctx context.Context, id string) (*gen.Peer, error) {
+	sql, args, err := postgres.Sql.
+		Select("id", "name", "type", "config").
+		From("peers").
+		Where("id = ?", id).
+		ToSql()
+	if err != nil {
+		return nil, fmt.Errorf("failed to build query: %w", err)
+	}
+
+	var peer gen.Peer
+	var cfg []byte
+	err = s.pg.QueryRow(ctx, sql, args...).Scan(&peer.Id, &peer.Name, &peer.Type, &cfg)
+	if err != nil {
+		return nil, errs.NotFound.WithMessage("peer not found").WithDetail(err)
+	}
+
+	// Decrypt config
+	decrypted, err := crypto.Decrypt(s.encryptionKey, cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decrypt config: %w", err)
+	}
+
+	switch peer.Type {
+	case gen.PeerType_POSTGRES:
+		var pgCfg gen.PostgresConfig
+		err = proto.Unmarshal(decrypted, &pgCfg)
+		if err != nil {
+			return nil, fmt.Errorf("failed to unmarshal postgres config: %w", err)
+		}
+		peer.Config = &gen.Peer_PostgresConfig{PostgresConfig: &pgCfg}
+	case gen.PeerType_CLICKHOUSE:
+		var chCfg gen.ClickhouseConfig
+		err = proto.Unmarshal(decrypted, &chCfg)
+		if err != nil {
+			return nil, fmt.Errorf("failed to unmarshal clickhouse config: %w", err)
+		}
+		peer.Config = &gen.Peer_ClickhouseConfig{ClickhouseConfig: &chCfg}
+	default:
+		return nil, fmt.Errorf("unknown peer type")
+	}
+
+	return &peer, nil
+}

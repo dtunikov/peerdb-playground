@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS cdc_flows;
+DROP TABLE IF EXISTS peers;

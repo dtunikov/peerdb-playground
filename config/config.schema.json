@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "log": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "level": {
+          "type": "string",
+          "description": "Log level.",
+          "default": "info",
+          "enum": ["trace", "debug", "info", "warn", "error", "fatal"]
+        }
+      }
+    },
+    "server": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "port": {
+          "type": "integer",
+          "description": "Port to listen on.",
+          "default": 8080
+        }
+      }
+    },
+    "database": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url"],
+      "properties": {
+        "url": {
+          "type": "string",
+          "description": "PostgreSQL URL."
+        }
+      }
+    },
+    "temporal": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "host_port": {
+          "type": "string",
+          "description": "Temporal server host:port.",
+          "default": "localhost:7233"
+        }
+      }
+    },
+    "encryption_key": {
+      "type": "string",
+      "description": "AES encryption key (16, 24, or 32 bytes hex-encoded) for encrypting peer configs."
+    }
+  }
+}

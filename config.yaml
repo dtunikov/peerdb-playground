@@ -1,0 +1,9 @@
+log:
+  level: info
+server:
+  port: 8080
+database:
+  url: postgres://postgres:postgres@localhost:5432/peerdb?sslmode=disable
+temporal:
+  host_port: localhost:7233
+encryption_key: "0123456789abcdef0123456789abcdef"

@@ -5,7 +5,7 @@ CDC (Change Data Capture) tool that moves data from sources (Postgres) to destin
 ## Current State
 
 - **Snapshot pipeline**: fully working end-to-end (Postgres -> ClickHouse)
-- **CDC streaming**: interfaces defined, not yet implemented
+- **CDC streaming**: working end-to-end for Postgres -> ClickHouse
 - **Supported sources**: Postgres (logical replication)
 - **Supported destinations**: ClickHouse (ReplacingMergeTree)
 
@@ -45,18 +45,20 @@ workflows/      — Temporal workflows and activities
 
 ```go
 type SourceConnector interface {
-    Setup(ctx) error              // Create publication + replication slot
-    GetTableSchemas(ctx) ([], error) // Discover source schema
-    SnapshotTable(ctx, table) (<-chan RecordBatch, error) // Stream full table
-    Read(ctx, ch chan<- RecordBatch) error  // CDC stream (not yet implemented)
-    Ack(ctx, position string) error         // Confirm processed LSN
-    Teardown(ctx) error           // Drop slot + publication
-    Close(ctx) error              // Close connections
+    Setup(ctx) error
+    Read(ctx, ch chan<- RecordBatch) error   // Long-running CDC stream with reconnect/resume
+    IsCriticalError(err error) bool          // Marks unrecoverable source failures
+    Ack(ctx, position string) error          // Confirm processed source position
+    GetTableSchemas(ctx) ([]TableSchema, error)
+    SnapshotTable(ctx, table TableSchema) (<-chan RecordBatch, error)
+    Teardown(ctx) error
+    Close(ctx) error
 }
 
 type DestinationConnector interface {
-    Setup(ctx, tables) error      // Create destination tables
-    Write(ctx, <-chan RecordBatch) error // Consume and write batches
+    Setup(ctx, tables []TableSchema) error
+    WriteBatch(ctx, batch RecordBatch) error
+    Write(ctx, ch <-chan RecordBatch) error
     Teardown(ctx) error
     Close(ctx) error
 }
@@ -84,10 +86,11 @@ type DestinationConnector interface {
 
 - Tables use `ReplacingMergeTree(_version)` engine for deduplication
 - `ORDER BY` uses source primary key columns
-- `_version` column (UInt64): 0 for snapshot, LSN for CDC (future)
+- `_version` column (UInt64): `0` for snapshot, commit LSN for CDC
 - Handles at-least-once delivery: duplicate writes with same PK + version are deduplicated during merges
 - Query with `SELECT ... FINAL` for immediate deduplication at read time
 - Schema prefix stripped from source table names (Postgres `public.users` -> ClickHouse `users`)
+- CDC writes are coalesced in the activity layer before calling `WriteBatch`, so ClickHouse does not get one insert per source commit
 
 ### Postgres Source
 
@@ -95,6 +98,13 @@ type DestinationConnector interface {
 - Idempotent setup — checks existence before creating (safe for Temporal activity retries)
 - Slot name uses underscores (Postgres restriction: no hyphens in slot names)
 - `GetTableSchemas` queries `information_schema.columns` + `pg_index` for PK detection
+- `Read` uses logical replication via `pgoutput`
+- Reader resumes from the slot's server-tracked LSN (`confirmed_flush_lsn`, falling back to `restart_lsn`)
+- CDC records are buffered per Postgres transaction and emitted as one `RecordBatch` per commit
+- `RecordBatch.BatchId` is the commit LSN string and is the contract used by `Ack`
+- `Ack` advances the connector's acknowledged LSN so standby status updates can move the slot forward
+- Transient replication failures reconnect with backoff; critical failures such as a missing slot are surfaced as unrecoverable
+- Inserts and updates are both materialized as insert-like records; deletes/truncates are not implemented yet
 
 ### Workflow Architecture
 
@@ -107,16 +117,23 @@ CdcFlowWorkflow (main)
 ├── SnapshotWorkflow (child workflow)
 │   ├── SnapshotTableActivity per table (1hr timeout, heartbeat 30s)
 │   └── Bounded parallelism via Selector (max 10 concurrent)
-├── CdcStreamActivity (not yet implemented)
+├── CdcStreamActivity (long-running, heartbeat 30s, unlimited retries)
+│   ├── source.Read(ctx, ch) emits one batch per committed source transaction
+│   ├── activity accumulates multiple source batches
+│   ├── flushes to destination on size/time thresholds
+│   └── source.Ack(ctx, highest_commit_lsn) after successful destination write
 └── TeardownActivity (not yet implemented)
 ```
 
 - **Per-activity timeouts**: Setup (5min), Snapshot (1hr per table), CDC (long-running with heartbeat)
+- **CDC lifetime**: `CdcStreamActivity` uses a 1-year `StartToCloseTimeout` with unlimited retries, so it automatically restarts on timeout and resumes from the replication slot
+- **Heartbeat recovery**: if the worker dies, Temporal times out the activity attempt and schedules a retry; when a worker returns, CDC resumes from the last acknowledged LSN
 - **Fail-fast snapshot**: if any table fails, stop scheduling new ones, wait for in-flight to finish
 - **Activity inputs use structs** (not positional args) for forward compatibility with Temporal serialization
 - **Proto messages for Temporal payloads**: `TableSchema` defined in `internal.proto` since `QType` interface can't be JSON-serialized
 - **Workflow logging**: use `workflow.GetLogger()` (replay-aware), not `slog`
 - **Activity logging**: use `slog` (normal Go code)
+- **Source-agnostic retry policy**: the workflow does not know Postgres-specific errors; it relies on `SourceConnector.IsCriticalError` to decide whether a source failure should be retried
 
 ### Serialization
 
@@ -132,11 +149,12 @@ CdcFlowWorkflow (main)
 
 ## Future Work
 
-- **CDC streaming**: implement `Read` using pglogrepl, LSN-based versioning
 - **S3 staging**: Source -> S3 -> Destination for backpressure handling (decouple source ack from destination write)
 - **S3 source connector**: poll S3 for new files, push to channel, checkpoint tracking in peerdb-postgres
 - **Schema evolution**: detect new columns via Postgres relation messages
 - **Dynamic table management**: add/remove tables from running flows
+- **CDC deletes/truncates**: propagate non-insert change types
+- **Configurable CDC batching**: move flush interval / max buffered records into flow config
 - **Teardown**: clean up slots, publications, destination tables on flow deletion
 
 ## Local Development

@@ -1,0 +1,28 @@
+services:
+  pg-source:
+    image: postgres:17
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: source
+    command: ["postgres", "-c", "wal_level=logical", "-c", "max_replication_slots=10"]
+    volumes:
+      - pg_source_data:/var/lib/postgresql/data
+
+  ch-dest:
+    image: clickhouse/clickhouse-server:latest
+    ports:
+      - "9000:9000"
+      - "8123:8123"
+    environment:
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: clickhouse
+      CLICKHOUSE_DB: destination
+    volumes:
+      - ch_dest_data:/var/lib/clickhouse
+
+volumes:
+  pg_source_data:
+  ch_dest_data:

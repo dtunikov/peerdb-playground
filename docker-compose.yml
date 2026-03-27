@@ -7,33 +7,13 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: peerdb
-    command: ["postgres", "-c", "wal_level=logical", "-c", "max_replication_slots=10"]
     volumes:
       - pgdata:/var/lib/postgresql/data
-
-  pg-source:
-    image: postgres:17
-    ports:
-      - "5433:5432"
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: source
-    command: ["postgres", "-c", "wal_level=logical", "-c", "max_replication_slots=10"]
-    volumes:
-      - pg_source_data:/var/lib/postgresql/data
-
-  ch-dest:
-    image: clickhouse/clickhouse-server:latest
-    ports:
-      - "9000:9000"
-      - "8123:8123"
-    environment:
-      CLICKHOUSE_USER: default
-      CLICKHOUSE_PASSWORD: clickhouse
-      CLICKHOUSE_DB: destination
-    volumes:
-      - ch_dest_data:/var/lib/clickhouse
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   temporal:
     image: temporalio/auto-setup:latest
@@ -46,7 +26,13 @@ services:
       POSTGRES_PWD: postgres
       POSTGRES_SEEDS: peerdb-postgres
     depends_on:
-      - peerdb-postgres
+      peerdb-postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "temporal", "operator", "cluster", "health", "--address", "temporal:7233"]
+      interval: 5s
+      timeout: 5s
+      retries: 24
 
   temporal-ui:
     image: temporalio/ui:latest
@@ -57,7 +43,41 @@ services:
     depends_on:
       - temporal
 
+  api:
+    build:
+      context: .
+      args:
+        TARGET: api
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+    environment:
+      POSTGRES_URL: postgres://postgres:postgres@peerdb-postgres:5432/peerdb?sslmode=disable
+      TEMPORAL_HOST_PORT: temporal:7233
+      ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef"
+    depends_on:
+      peerdb-postgres:
+        condition: service_healthy
+      temporal:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: .
+      args:
+        TARGET: worker
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+    environment:
+      POSTGRES_URL: postgres://postgres:postgres@peerdb-postgres:5432/peerdb?sslmode=disable
+      TEMPORAL_HOST_PORT: temporal:7233
+      ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef"
+    depends_on:
+      peerdb-postgres:
+        condition: service_healthy
+      temporal:
+        condition: service_healthy
+
 volumes:
   pgdata:
-  pg_source_data:
-  ch_dest_data:

@@ -37,11 +37,6 @@ type Config struct {
 func LoadConfig(configFilePath string) (*Config, error) {
 	cfg := Config{}
 
-	err := env.Parse(&cfg)
-	if err != nil {
-		return nil, err
-	}
-
 	configFileBytes, err := os.ReadFile(configFilePath)
 	if err != nil {
 		return nil, fmt.Errorf("could not read custom config file %s: %w", configFilePath, err)
@@ -50,6 +45,12 @@ func LoadConfig(configFilePath string) (*Config, error) {
 	configYamlData := os.ExpandEnv(string(configFileBytes))
 	if err := yaml.Unmarshal([]byte(configYamlData), &cfg); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal router config: %w", err)
+	}
+
+	// Parse env vars after YAML so environment overrides file values
+	err = env.Parse(&cfg)
+	if err != nil {
+		return nil, err
 	}
 
 	// Validate the config against the JSON schema

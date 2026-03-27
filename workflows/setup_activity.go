@@ -33,7 +33,7 @@ func (a *Activities) SetupActivity(ctx context.Context, input SetupActivityInput
 	logger := slog.With("flowId", input.FlowId)
 	logger.Info("setting up connectors for flow")
 
-	srcConn, err := NewSourceConnector(ctx, input.FlowId, source, flow.GetConfig(), logger)
+	srcConn, err := newSourceConnector(ctx, input.FlowId, source, flow.GetConfig(), logger)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create source connector: %w", err)
 	}
@@ -44,7 +44,7 @@ func (a *Activities) SetupActivity(ctx context.Context, input SetupActivityInput
 		return nil, fmt.Errorf("failed to setup source connector: %w", err)
 	}
 
-	destConn, err := NewDestinationConnector(ctx, dest, flow.GetConfig(), logger)
+	destConn, err := newDestinationConnector(ctx, dest, flow.GetConfig(), logger)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create destination connector: %w", err)
 	}

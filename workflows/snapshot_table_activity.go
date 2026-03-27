@@ -30,13 +30,13 @@ func (a *Activities) SnapshotTableActivity(ctx context.Context, input SnapshotTa
 	}
 
 	logger := slog.With("flowId", input.FlowId, "table", input.Table)
-	srcConn, err := NewSourceConnector(ctx, input.FlowId, source, flow.GetConfig(), logger)
+	srcConn, err := newSourceConnector(ctx, input.FlowId, source, flow.GetConfig(), logger)
 	if err != nil {
 		return fmt.Errorf("failed to create source connector: %w", err)
 	}
 	defer srcConn.Close(ctx)
 
-	destConn, err := NewDestinationConnector(ctx, dest, flow.GetConfig(), logger)
+	destConn, err := newDestinationConnector(ctx, dest, flow.GetConfig(), logger)
 	if err != nil {
 		return fmt.Errorf("failed to create destination connector: %w", err)
 	}

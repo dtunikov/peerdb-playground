@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"peerdb-playground/gen"
 	"strings"
@@ -13,7 +14,8 @@ import (
 )
 
 var (
-	Sql = sq.StatementBuilder.PlaceholderFormat(sq.Dollar)
+	Sql                       = sq.StatementBuilder.PlaceholderFormat(sq.Dollar)
+	ErrReplicationSlotMissing = errors.New("replication slot missing")
 )
 
 type Config struct {
@@ -133,4 +135,49 @@ func CreateReplicationSlot(ctx context.Context, conn *pgconn.PgConn, name string
 	}
 
 	return nil
+}
+
+func LoadReplicationSlotLSN(ctx context.Context, conn *pgx.Conn, name string) (pglogrepl.LSN, error) {
+	var confirmedFlushLSN *string
+	var restartLSN *string
+
+	err := conn.QueryRow(ctx,
+		`SELECT confirmed_flush_lsn::text, restart_lsn::text
+		FROM pg_replication_slots
+		WHERE slot_name = $1`,
+		name,
+	).Scan(&confirmedFlushLSN, &restartLSN)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return 0, fmt.Errorf("%w: %s", ErrReplicationSlotMissing, name)
+		}
+		return 0, fmt.Errorf("failed to load replication slot state: %w", err)
+	}
+
+	lsn, err := ParseReplicationSlotLSN(confirmedFlushLSN, restartLSN)
+	if err != nil {
+		return 0, fmt.Errorf("failed to parse replication slot state: %w", err)
+	}
+
+	return lsn, nil
+}
+
+func ParseReplicationSlotLSN(confirmedFlushLSN, restartLSN *string) (pglogrepl.LSN, error) {
+	if confirmedFlushLSN != nil && *confirmedFlushLSN != "" {
+		lsn, err := pglogrepl.ParseLSN(*confirmedFlushLSN)
+		if err != nil {
+			return 0, fmt.Errorf("invalid confirmed_flush_lsn %q: %w", *confirmedFlushLSN, err)
+		}
+		return lsn, nil
+	}
+
+	if restartLSN != nil && *restartLSN != "" {
+		lsn, err := pglogrepl.ParseLSN(*restartLSN)
+		if err != nil {
+			return 0, fmt.Errorf("invalid restart_lsn %q: %w", *restartLSN, err)
+		}
+		return lsn, nil
+	}
+
+	return 0, nil
 }

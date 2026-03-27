@@ -99,48 +99,56 @@ func (c *DestinationConnector) Close(ctx context.Context) error {
 
 func (c *DestinationConnector) Write(ctx context.Context, ch <-chan connectors.RecordBatch) error {
 	for recBatch := range ch {
-		if len(recBatch.Records) == 0 {
-			continue
+		if err := c.WriteBatch(ctx, recBatch); err != nil {
+			return err
 		}
-		c.logger.Debug("writing batch to clickhouse")
-		batchByTable := make(map[string][]connectors.Record)
-		for _, record := range recBatch.Records {
-			sourceTable := record.GetTable().String()
-			destName := record.GetTable().Name // default: use table name without schema
-			if tm, ok := c.tableMappings[sourceTable]; ok && tm.DestTableName != "" {
-				destName = tm.DestTableName
-			}
-			batchByTable[destName] = append(batchByTable[destName], record)
+	}
+
+	return nil
+}
+
+func (c *DestinationConnector) WriteBatch(ctx context.Context, recBatch connectors.RecordBatch) error {
+	if len(recBatch.Records) == 0 {
+		return nil
+	}
+	c.logger.Debug("writing batch to clickhouse")
+	batchByTable := make(map[string][]connectors.Record)
+	for _, record := range recBatch.Records {
+		sourceTable := record.GetTable().String()
+		destName := record.GetTable().Name // default: use table name without schema
+		if tm, ok := c.tableMappings[sourceTable]; ok && tm.DestTableName != "" {
+			destName = tm.DestTableName
+		}
+		batchByTable[destName] = append(batchByTable[destName], record)
+	}
+
+	for table, records := range batchByTable {
+		tableName := fmt.Sprintf(`"%s"`, table)
+		chBatch, err := c.conn.PrepareBatch(ctx, fmt.Sprintf("INSERT INTO %s", tableName))
+		if err != nil {
+			return fmt.Errorf("failed to prepare batch for table %s: %w", table, err)
 		}
 
-		for table, records := range batchByTable {
-			tableName := fmt.Sprintf(`"%s"`, table)
-			chBatch, err := c.conn.PrepareBatch(ctx, fmt.Sprintf("INSERT INTO %s", tableName))
-			if err != nil {
-				return fmt.Errorf("failed to prepare batch for table %s: %w", table, err)
-			}
-
-			for _, record := range records {
-				var values []any
-				switch r := record.(type) {
-				case connectors.InsertRecord:
-					for _, col := range r.Values {
-						values = append(values, col.Value.Value())
-					}
-					values = append(values, r.Version)
-				default:
-					return fmt.Errorf("unsupported record type %T for table %s", record, table)
+		for _, record := range records {
+			var values []any
+			switch r := record.(type) {
+			case connectors.InsertRecord:
+				for _, col := range r.Values {
+					values = append(values, col.Value.Value())
 				}
-				err = chBatch.Append(values...)
-				if err != nil {
-					return fmt.Errorf("failed to append record to batch for table %s: %w", table, err)
-				}
+				values = append(values, r.Version)
+			default:
+				return fmt.Errorf("unsupported record type %T for table %s", record, table)
 			}
-
-			err = chBatch.Send()
+			err = chBatch.Append(values...)
 			if err != nil {
-				return fmt.Errorf("failed to send batch for table %s: %w", table, err)
+				return fmt.Errorf("failed to append record to batch for table %s: %w", table, err)
 			}
+		}
+
+		err = chBatch.Send()
+		if err != nil {
+			return fmt.Errorf("failed to send batch for table %s: %w", table, err)
 		}
 	}
 

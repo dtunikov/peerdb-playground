@@ -21,6 +21,8 @@ type SourceConnector interface {
 	// Read should continuously read changes from the source and send them to the provided channel until the context is canceled or unrecoverable error occurs.
 	// The implementation should handle reconnections and resume from the last position in case of transient errors.
 	Read(ctx context.Context, ch chan<- RecordBatch) error
+	// IsCriticalError reports whether the source error should stop activity retries.
+	IsCriticalError(err error) bool
 	// Ack should acknowledge that the batch with the given ID has been successfully processed and can be marked as completed in the source.
 	// For example, in case of postgres CDC we have to mark the corresponding LSN position as completed so that it could free up WAL logs.
 	Ack(ctx context.Context, position string) error
@@ -34,6 +36,8 @@ type DestinationConnector interface {
 	Connector
 	// Setup should prepare destination for incoming data (e.g. create tables if neccesary)
 	Setup(ctx context.Context, tables []TableSchema) error
+	// WriteBatch should apply a single batch to the destination.
+	WriteBatch(ctx context.Context, batch RecordBatch) error
 	// Write should consume record batches from the provided channel and apply them to the destination until the channel is closed or unrecoverable error occurs.
 	Write(ctx context.Context, ch <-chan RecordBatch) error
 }

@@ -12,7 +12,7 @@ import (
 	"peerdb-playground/pkg/postgres"
 )
 
-func NewSourceConnector(ctx context.Context, flowId string, peer *gen.Peer, flowCfg *gen.CdcFlowConfig, logger *slog.Logger) (connectors.SourceConnector, error) {
+func newSourceConnector(ctx context.Context, flowId string, peer *gen.Peer, flowCfg *gen.CdcFlowConfig, logger *slog.Logger) (connectors.SourceConnector, error) {
 	switch peer.Type {
 	case gen.PeerType_POSTGRES:
 		return pg.NewConnector(ctx, flowId, postgres.ConfigFromProto(peer.GetPostgresConfig()), logger, flowCfg.GetTables(),
@@ -22,7 +22,7 @@ func NewSourceConnector(ctx context.Context, flowId string, peer *gen.Peer, flow
 	}
 }
 
-func NewDestinationConnector(ctx context.Context, peer *gen.Peer, flowCfg *gen.CdcFlowConfig, logger *slog.Logger) (connectors.DestinationConnector, error) {
+func newDestinationConnector(ctx context.Context, peer *gen.Peer, flowCfg *gen.CdcFlowConfig, logger *slog.Logger) (connectors.DestinationConnector, error) {
 	tableMappings := make(connectors.TableMappings)
 	for _, tm := range flowCfg.TableMappings {
 		tableMappings[tm.Source] = struct {

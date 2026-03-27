@@ -57,6 +57,16 @@ func CdcFlowWorkflow(ctx workflow.Context, input CdcFlowWorkflowInput) error {
 			MaximumAttempts:    3,
 		},
 	})
+	cdcCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: 365 * 24 * time.Hour,
+		HeartbeatTimeout:    30 * time.Second,
+		RetryPolicy: &temporal.RetryPolicy{
+			InitialInterval:    5 * time.Second,
+			BackoffCoefficient: 2.0,
+			MaximumInterval:    1 * time.Minute,
+			MaximumAttempts:    0,
+		},
+	})
 
 	var setupOutput *SetupActivityOutput
 	err := workflow.ExecuteActivity(setupCtx, activities.SetupActivity, SetupActivityInput{FlowId: input.FlowId}).Get(setupCtx, &setupOutput)
@@ -70,6 +80,12 @@ func CdcFlowWorkflow(ctx workflow.Context, input CdcFlowWorkflowInput) error {
 	}).Get(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to execute snapshot workflow: %w", err)
+	}
+
+	err = workflow.ExecuteActivity(cdcCtx, activities.CdcStreamActivity, CdcStreamActivityInput{FlowId: input.FlowId, Tables: setupOutput.Tables}).
+		Get(cdcCtx, nil)
+	if err != nil {
+		return fmt.Errorf("cdc activity failed: %w", err)
 	}
 
 	return nil

@@ -7,9 +7,13 @@ import (
 	"peerdb-playground/connectors"
 	"peerdb-playground/pkg/postgres"
 	"strings"
+	"sync"
+	"time"
 
+	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type SourceConnector struct {
@@ -19,10 +23,15 @@ type SourceConnector struct {
 	replConn *pgconn.PgConn
 	logger   *slog.Logger
 	flowId   string
+	cfg      postgres.Config
 	// tables to replicate
 	tables []string
 	// publication name to use for this flow (will be generated if not provided in config)
 	publicationName string
+
+	stateMu         sync.Mutex
+	lastReceivedLSN pglogrepl.LSN
+	lastAckedLSN    pglogrepl.LSN
 }
 
 func NewConnector(ctx context.Context, flowId string, connConfig postgres.Config, logger *slog.Logger,
@@ -43,6 +52,7 @@ func NewConnector(ctx context.Context, flowId string, connConfig postgres.Config
 		replConn:        replConn,
 		logger:          logger,
 		flowId:          flowId,
+		cfg:             connConfig,
 		tables:          tables,
 		publicationName: publicationName,
 	}, nil
@@ -50,6 +60,12 @@ func NewConnector(ctx context.Context, flowId string, connConfig postgres.Config
 
 // Ack confirms processed LSN to postgres, so that it could clean up old WAL logs.
 func (c *SourceConnector) Ack(ctx context.Context, position string) error {
+	lsn, err := pglogrepl.ParseLSN(position)
+	if err != nil {
+		return fmt.Errorf("failed to parse ack position %q: %w", position, err)
+	}
+
+	c.advanceAckedLSN(lsn)
 	return nil
 }
 
@@ -74,7 +90,7 @@ func (c *SourceConnector) Setup(ctx context.Context) error {
 	}
 
 	// create replication slot if it doesn't already exist (idempotent for activity retries)
-	slotName := fmt.Sprintf("peerdb_slot_%s", strings.ReplaceAll(c.flowId, "-", "_"))
+	slotName := c.slotName()
 	slotExists, err := postgres.ReplicationSlotExists(ctx, c.conn, slotName)
 	if err != nil {
 		return fmt.Errorf("failed to check replication slot existence: %w", err)
@@ -98,7 +114,48 @@ func (c *SourceConnector) Teardown(ctx context.Context) error {
 }
 
 func (c *SourceConnector) Read(ctx context.Context, ch chan<- connectors.RecordBatch) error {
-	return nil
+	defer close(ch)
+
+	tableSchemas, err := c.GetTableSchemas(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to load table schemas for CDC: %w", err)
+	}
+
+	tableSchemaByName := indexTableSchemas(tableSchemas)
+	typeMap := pgtype.NewMap()
+	publicationName := c.resolvedPublicationName()
+	slotName := c.slotName()
+
+	backoff := initialReconnectBackoff
+	for {
+		err := c.readOnce(ctx, slotName, publicationName, tableSchemaByName, typeMap, ch)
+		if err == nil || ctx.Err() != nil {
+			return nil
+		}
+		if isCriticalReplicationError(err) {
+			return err
+		}
+
+		c.logger.Warn("replication stream interrupted, retrying", "slot", slotName, "backoff", backoff, "error", err)
+		select {
+		case <-time.After(backoff):
+		case <-ctx.Done():
+			return nil
+		}
+
+		if err := c.reconnect(ctx); err != nil {
+			if ctx.Err() != nil {
+				return nil
+			}
+			return fmt.Errorf("failed to reconnect postgres source connector: %w", err)
+		}
+		if backoff < maxReconnectBackoff {
+			backoff *= 2
+			if backoff > maxReconnectBackoff {
+				backoff = maxReconnectBackoff
+			}
+		}
+	}
 }
 
 func (c *SourceConnector) generatePublicationName() string {
@@ -151,8 +208,14 @@ func (c *SourceConnector) getPublicationTables(ctx context.Context, pubName stri
 }
 
 func (c *SourceConnector) Close(ctx context.Context) error {
-	c.conn.Close(ctx)
-	c.replConn.Close(ctx)
+	if c.conn != nil {
+		c.conn.Close(ctx)
+		c.conn = nil
+	}
+	if c.replConn != nil {
+		c.replConn.Close(ctx)
+		c.replConn = nil
+	}
 	return nil
 }
 
@@ -233,4 +296,52 @@ func (c *SourceConnector) getPrimaryKeyColumns(ctx context.Context, qualifiedNam
 	}
 
 	return pkCols, nil
+}
+
+func (c *SourceConnector) slotName() string {
+	return fmt.Sprintf("peerdb_slot_%s", strings.ReplaceAll(c.flowId, "-", "_"))
+}
+
+func (c *SourceConnector) resolvedPublicationName() string {
+	if c.publicationName != "" {
+		return c.publicationName
+	}
+	return c.generatePublicationName()
+}
+
+func (c *SourceConnector) advanceReceivedLSN(lsn pglogrepl.LSN) {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+
+	if lsn > c.lastReceivedLSN {
+		c.lastReceivedLSN = lsn
+	}
+}
+
+func (c *SourceConnector) advanceAckedLSN(lsn pglogrepl.LSN) {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+
+	if lsn > c.lastAckedLSN {
+		c.lastAckedLSN = lsn
+	}
+}
+
+func (c *SourceConnector) initializeConfirmedLSN(lsn pglogrepl.LSN) {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+
+	if lsn > c.lastReceivedLSN {
+		c.lastReceivedLSN = lsn
+	}
+	if lsn > c.lastAckedLSN {
+		c.lastAckedLSN = lsn
+	}
+}
+
+func (c *SourceConnector) replicationPositions() (pglogrepl.LSN, pglogrepl.LSN) {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+
+	return c.lastReceivedLSN, c.lastAckedLSN
 }

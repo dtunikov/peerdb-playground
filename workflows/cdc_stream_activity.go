@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"peerdb-playground/config"
 	"peerdb-playground/connectors"
 	"peerdb-playground/gen"
 	"time"
@@ -18,15 +19,33 @@ type CdcStreamActivityInput struct {
 	Tables []*gen.TableSchema
 }
 
-const (
-	cdcStreamHeartbeatInterval = 15 * time.Second
-)
+// cdcStreamConfig holds resolved CDC stream parameters for a single run.
+type cdcStreamConfig struct {
+	flushInterval     time.Duration
+	maxBatchSize      int
+	heartbeatInterval time.Duration
+	recordHeartbeat   func(ctx context.Context, details ...any)
+}
 
-var (
-	recordActivityHeartbeat = activity.RecordHeartbeat
-	cdcStreamFlushInterval  = 1 * time.Second
-	cdcStreamMaxBatchSize   = 10_000
-)
+// resolveCdcStreamConfig builds a cdcStreamConfig by applying per-flow overrides
+// on top of server-level defaults.
+func resolveCdcStreamConfig(defaults config.CdcConfig, flowCfg *gen.CdcFlowConfig) cdcStreamConfig {
+	cfg := cdcStreamConfig{
+		flushInterval:     time.Duration(defaults.FlushIntervalMs) * time.Millisecond,
+		maxBatchSize:      defaults.MaxBatchSize,
+		heartbeatInterval: time.Duration(defaults.HeartbeatIntervalMs) * time.Millisecond,
+	}
+	if flowCfg.FlushIntervalMs != nil && *flowCfg.FlushIntervalMs > 0 {
+		cfg.flushInterval = time.Duration(*flowCfg.FlushIntervalMs) * time.Millisecond
+	}
+	if flowCfg.MaxBatchSize != nil && *flowCfg.MaxBatchSize > 0 {
+		cfg.maxBatchSize = int(*flowCfg.MaxBatchSize)
+	}
+	if flowCfg.HeartbeatIntervalMs != nil && *flowCfg.HeartbeatIntervalMs > 0 {
+		cfg.heartbeatInterval = time.Duration(*flowCfg.HeartbeatIntervalMs) * time.Millisecond
+	}
+	return cfg
+}
 
 func (a *Activities) CdcStreamActivity(ctx context.Context, input CdcStreamActivityInput) error {
 	flow, err := a.flowsSvc.GetFlow(ctx, input.FlowId)
@@ -55,18 +74,25 @@ func (a *Activities) CdcStreamActivity(ctx context.Context, input CdcStreamActiv
 	}
 	defer destConn.Close(ctx)
 
-	return runCdcStream(ctx, srcConn, destConn, logger)
+	streamCfg := resolveCdcStreamConfig(a.cdcCfg, flow.GetConfig())
+	streamCfg.recordHeartbeat = activity.RecordHeartbeat
+	return runCdcStream(ctx, srcConn, destConn, streamCfg, logger)
 }
 
 func runCdcStream(
 	ctx context.Context,
 	srcConn connectors.SourceConnector,
 	destConn connectors.DestinationConnector,
+	cfg cdcStreamConfig,
 	logger *slog.Logger,
 ) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	logger.Info("starting cdc stream activity")
+	logger.Info("starting cdc stream activity",
+		"flushInterval", cfg.flushInterval,
+		"maxBatchSize", cfg.maxBatchSize,
+		"heartbeatInterval", cfg.heartbeatInterval,
+	)
 
 	readCh := make(chan connectors.RecordBatch)
 	readErrCh := make(chan error, 1)
@@ -76,9 +102,9 @@ func runCdcStream(
 		readErrCh <- srcConn.Read(ctx, readCh)
 	}()
 
-	heartbeatTicker := time.NewTicker(cdcStreamHeartbeatInterval)
+	heartbeatTicker := time.NewTicker(cfg.heartbeatInterval)
 	defer heartbeatTicker.Stop()
-	flushTicker := time.NewTicker(cdcStreamFlushInterval)
+	flushTicker := time.NewTicker(cfg.flushInterval)
 	defer flushTicker.Stop()
 
 	for {
@@ -86,14 +112,16 @@ func runCdcStream(
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-heartbeatTicker.C:
-			recordActivityHeartbeat(ctx, "cdc-stream-running")
+			cfg.recordHeartbeat(ctx, "cdc-stream-running")
 		case <-flushTicker.C:
-			if err := flushCdcBatch(ctx, srcConn, destConn, &pending, logger); err != nil {
+			// flush every interval seconds
+			if err := flushCdcBatch(ctx, srcConn, destConn, cfg, &pending, logger); err != nil {
 				return err
 			}
 		case batch, ok := <-readCh:
 			if !ok {
-				if err := flushCdcBatch(ctx, srcConn, destConn, &pending, logger); err != nil {
+				// flush on stream close
+				if err := flushCdcBatch(ctx, srcConn, destConn, cfg, &pending, logger); err != nil {
 					return err
 				}
 				readErr := <-readErrCh
@@ -113,8 +141,9 @@ func runCdcStream(
 
 			logger.Debug("buffering cdc batch", "batchId", batch.BatchId, "records", len(batch.Records))
 			pending.add(batch)
-			if pending.recordCount >= cdcStreamMaxBatchSize {
-				if err := flushCdcBatch(ctx, srcConn, destConn, &pending, logger); err != nil {
+			if pending.recordCount >= cfg.maxBatchSize {
+				// flush if batch size exceeds threshold
+				if err := flushCdcBatch(ctx, srcConn, destConn, cfg, &pending, logger); err != nil {
 					return err
 				}
 			}
@@ -155,6 +184,7 @@ func flushCdcBatch(
 	ctx context.Context,
 	srcConn connectors.SourceConnector,
 	destConn connectors.DestinationConnector,
+	cfg cdcStreamConfig,
 	pending *cdcBatchAccumulator,
 	logger *slog.Logger,
 ) error {
@@ -179,7 +209,7 @@ func flushCdcBatch(
 			return fmt.Errorf("failed to ack source batch %s: %w", batch.BatchId, err)
 		}
 	}
-	recordActivityHeartbeat(ctx, batch.BatchId)
+	cfg.recordHeartbeat(ctx, batch.BatchId)
 	return nil
 }
 

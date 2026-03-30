@@ -70,7 +70,7 @@ func run() error {
 	w := worker.New(tc, "cdc-flow", worker.Options{})
 
 	activities := &workflows.Activities{}
-	workflows.Init(activities, flowsSvc, peersSvc)
+	workflows.Init(activities, flowsSvc, peersSvc, cfg.Cdc)
 
 	w.RegisterWorkflow(workflows.CdcFlowWorkflow)
 	w.RegisterWorkflow(workflows.SnapshotWorkflow)

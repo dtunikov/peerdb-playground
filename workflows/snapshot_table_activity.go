@@ -42,17 +42,33 @@ func (a *Activities) SnapshotTableActivity(ctx context.Context, input SnapshotTa
 	}
 	defer destConn.Close(ctx)
 
-	if idx := slices.IndexFunc(flow.GetConfig().TableMappings, func(tm *gen.TableMapping) bool {
-		return tm.Source == input.Table.GetName() && len(tm.ExcludeColumns) > 0
-	}); idx >= 0 {
-		tm := flow.GetConfig().TableMappings[idx]
-		input.Table.Columns = slices.DeleteFunc(input.Table.GetColumns(), func(c *gen.ColumnSchema) bool {
-			return slices.Contains(tm.ExcludeColumns, c.GetName())
-		})
-	}
+	table := applyColumnExclusions(input.Table, flow.GetConfig().TableMappings)
+	return runSnapshot(ctx, srcConn, destConn, connectors.TableSchemaFromProto(table), logger)
+}
 
+func applyColumnExclusions(table *gen.TableSchema, mappings []*gen.TableMapping) *gen.TableSchema {
+	idx := slices.IndexFunc(mappings, func(tm *gen.TableMapping) bool {
+		return tm.Source == table.GetName() && len(tm.ExcludeColumns) > 0
+	})
+	if idx < 0 {
+		return table
+	}
+	tm := mappings[idx]
+	table.Columns = slices.DeleteFunc(table.GetColumns(), func(c *gen.ColumnSchema) bool {
+		return slices.Contains(tm.ExcludeColumns, c.GetName())
+	})
+	return table
+}
+
+func runSnapshot(
+	ctx context.Context,
+	srcConn connectors.SourceConnector,
+	destConn connectors.DestinationConnector,
+	table connectors.TableSchema,
+	logger *slog.Logger,
+) error {
 	logger.Info("Starting snapshot")
-	ch, err := srcConn.SnapshotTable(ctx, connectors.TableSchemaFromProto(input.Table))
+	ch, err := srcConn.SnapshotTable(ctx, table)
 	if err != nil {
 		return fmt.Errorf("failed to snapshot table from source connector: %w", err)
 	}

@@ -5,7 +5,7 @@ import (
 	"peerdb-playground/connectors/types"
 )
 
-func qTypToClickHouseType(t types.QType) string {
+func qTypToClickhouseType(t types.QType) string {
 	switch t := t.(type) {
 	case types.QTypeBool:
 		return "Bool"

@@ -8,8 +8,8 @@ import (
 	"peerdb-playground/pkg/postgres"
 	"peerdb-playground/services/peers"
 
-	"google.golang.org/protobuf/proto"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"google.golang.org/protobuf/proto"
 )
 
 const (

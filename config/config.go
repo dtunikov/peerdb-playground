@@ -26,11 +26,18 @@ type TemporalConfig struct {
 	HostPort string `yaml:"host_port" env:"TEMPORAL_HOST_PORT" envDefault:"localhost:7233"`
 }
 
+type CdcConfig struct {
+	FlushIntervalMs     int `yaml:"flush_interval_ms" env:"CDC_FLUSH_INTERVAL_MS" envDefault:"1000"`
+	MaxBatchSize        int `yaml:"max_batch_size" env:"CDC_MAX_BATCH_SIZE" envDefault:"10000"`
+	HeartbeatIntervalMs int `yaml:"heartbeat_interval_ms" env:"CDC_HEARTBEAT_INTERVAL_MS" envDefault:"15000"`
+}
+
 type Config struct {
 	Log           Log            `yaml:"log"`
 	Server        Server         `yaml:"server"`
 	Database      PostgresConfig `yaml:"database"`
 	Temporal      TemporalConfig `yaml:"temporal"`
+	Cdc           CdcConfig      `yaml:"cdc"`
 	EncryptionKey string         `yaml:"encryption_key" env:"ENCRYPTION_KEY"`
 }
 

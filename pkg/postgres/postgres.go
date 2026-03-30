@@ -154,6 +154,7 @@ func LoadReplicationSlotLSN(ctx context.Context, conn *pgx.Conn, name string) (p
 		return 0, fmt.Errorf("failed to load replication slot state: %w", err)
 	}
 
+	// restartLSN will be used if we never acked flushed position before
 	lsn, err := ParseReplicationSlotLSN(confirmedFlushLSN, restartLSN)
 	if err != nil {
 		return 0, fmt.Errorf("failed to parse replication slot state: %w", err)

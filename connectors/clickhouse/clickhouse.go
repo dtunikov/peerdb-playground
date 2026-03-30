@@ -57,7 +57,7 @@ func (c *DestinationConnector) Setup(ctx context.Context, tables []connectors.Ta
 			if _, excluded := excludeCols[col.Name]; excluded {
 				continue
 			}
-			chType := qTypToClickHouseType(col.Type)
+			chType := qTypToClickhouseType(col.Type)
 			if col.Nullable {
 				chType = fmt.Sprintf("Nullable(%s)", chType)
 			}
@@ -107,11 +107,25 @@ func (c *DestinationConnector) Write(ctx context.Context, ch <-chan connectors.R
 	return nil
 }
 
+func columnNames(record connectors.Record) []string {
+	switch r := record.(type) {
+	case connectors.InsertRecord:
+		names := make([]string, 0, len(r.Values)+1)
+		for _, col := range r.Values {
+			names = append(names, fmt.Sprintf(`"%s"`, col.Name))
+		}
+		names = append(names, `"_version"`)
+		return names
+	default:
+		return nil
+	}
+}
+
 func (c *DestinationConnector) WriteBatch(ctx context.Context, recBatch connectors.RecordBatch) error {
 	if len(recBatch.Records) == 0 {
 		return nil
 	}
-	c.logger.Debug("writing batch to clickhouse")
+	c.logger.Debug("writing batch to clickhouse", "batchId", recBatch.BatchId, "recordCount", len(recBatch.Records))
 	batchByTable := make(map[string][]connectors.Record)
 	for _, record := range recBatch.Records {
 		sourceTable := record.GetTable().String()
@@ -124,7 +138,9 @@ func (c *DestinationConnector) WriteBatch(ctx context.Context, recBatch connecto
 
 	for table, records := range batchByTable {
 		tableName := fmt.Sprintf(`"%s"`, table)
-		chBatch, err := c.conn.PrepareBatch(ctx, fmt.Sprintf("INSERT INTO %s", tableName))
+		colNames := columnNames(records[0])
+		colList := strings.Join(colNames, ", ")
+		chBatch, err := c.conn.PrepareBatch(ctx, fmt.Sprintf("INSERT INTO %s (%s)", tableName, colList))
 		if err != nil {
 			return fmt.Errorf("failed to prepare batch for table %s: %w", table, err)
 		}
@@ -151,6 +167,7 @@ func (c *DestinationConnector) WriteBatch(ctx context.Context, recBatch connecto
 			return fmt.Errorf("failed to send batch for table %s: %w", table, err)
 		}
 	}
+	c.logger.Debug("finished writing batch to clickhouse", "batchId", recBatch.BatchId)
 
 	return nil
 }

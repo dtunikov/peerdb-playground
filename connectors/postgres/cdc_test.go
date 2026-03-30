@@ -48,14 +48,11 @@ func TestDecodeTupleColumns(t *testing.T) {
 		t.Fatalf("unexpected value count: got %d want 3", len(values))
 	}
 
-	if got, want := values[0].Value.Value(), int32(42); got != want {
-		t.Fatalf("unexpected id value: got %v want %v", got, want)
-	}
-	if got, want := values[1].Value.Value(), "alice"; got != want {
-		t.Fatalf("unexpected name value: got %v want %v", got, want)
-	}
-	if got, want := values[2].Value.Value(), true; got != want {
-		t.Fatalf("unexpected active value: got %v want %v", got, want)
+	expected := []any{int32(42), "alice", true}
+	for i, v := range values {
+		if got, want := v.Value.Value(), expected[i]; got != want {
+			t.Fatalf("unexpected value for column %d: got %v want %v", i, got, want)
+		}
 	}
 }
 

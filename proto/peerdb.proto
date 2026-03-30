@@ -62,6 +62,15 @@ message CdcFlowConfig {
   oneof source_config {
     PostgresSourceConfig postgres_source = 3;
   }
+  // How often to flush buffered CDC records to the destination, in milliseconds.
+  // If 0 or unset, falls back to the server-level default.
+  optional uint32 flush_interval_ms = 4;
+  // Maximum number of records to buffer before flushing to the destination.
+  // If 0 or unset, falls back to the server-level default.
+  optional uint32 max_batch_size = 5;
+  // How often to send Temporal heartbeats during CDC streaming, in milliseconds.
+  // If 0 or unset, falls back to the server-level default.
+  optional uint32 heartbeat_interval_ms = 6;
 }
 
 message CDCFlow {

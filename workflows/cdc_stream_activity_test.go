@@ -3,9 +3,6 @@ package workflows
 import (
 	"context"
 	"errors"
-	"io"
-	"log/slog"
-	"sync"
 	"testing"
 	"time"
 
@@ -14,16 +11,18 @@ import (
 	"go.temporal.io/sdk/temporal"
 )
 
+func testCdcStreamConfig(flushInterval time.Duration, maxBatchSize int) cdcStreamConfig {
+	return cdcStreamConfig{
+		flushInterval:     flushInterval,
+		maxBatchSize:      maxBatchSize,
+		heartbeatInterval: time.Hour, // effectively disabled for tests
+		recordHeartbeat:   func(context.Context, ...any) {},
+	}
+}
+
 func TestRunCdcStreamCoalescesBatchesAndAcksHighestLSN(t *testing.T) {
-	restoreHeartbeat, restoreFlushInterval, restoreMaxBatchSize := overrideCdcStreamTestConfig()
-	defer restoreHeartbeat()
-	defer restoreFlushInterval()
-	defer restoreMaxBatchSize()
+	cfg := testCdcStreamConfig(time.Hour, 10)
 
-	cdcStreamFlushInterval = time.Hour
-	cdcStreamMaxBatchSize = 10
-
-	var mu sync.Mutex
 	writes := []connectors.RecordBatch{}
 	acks := []string{}
 	src := &fakeSourceConnector{
@@ -34,8 +33,6 @@ func TestRunCdcStreamCoalescesBatchesAndAcksHighestLSN(t *testing.T) {
 			return nil
 		},
 		ackFn: func(ctx context.Context, position string) error {
-			mu.Lock()
-			defer mu.Unlock()
 			acks = append(acks, position)
 			return nil
 		},
@@ -45,20 +42,16 @@ func TestRunCdcStreamCoalescesBatchesAndAcksHighestLSN(t *testing.T) {
 	}
 	dst := &fakeDestinationConnector{
 		writeBatchFn: func(ctx context.Context, batch connectors.RecordBatch) error {
-			mu.Lock()
-			defer mu.Unlock()
 			writes = append(writes, batch)
 			return nil
 		},
 	}
 
-	err := runCdcStream(context.Background(), src, dst, testLogger())
+	err := runCdcStream(context.Background(), src, dst, cfg, testLogger())
 	if err != nil {
 		t.Fatalf("runCdcStream returned error: %v", err)
 	}
 
-	mu.Lock()
-	defer mu.Unlock()
 	if len(writes) != 1 {
 		t.Fatalf("unexpected write count: got %d want 1", len(writes))
 	}
@@ -77,15 +70,8 @@ func TestRunCdcStreamCoalescesBatchesAndAcksHighestLSN(t *testing.T) {
 }
 
 func TestRunCdcStreamFlushesWhenBatchSizeReached(t *testing.T) {
-	restoreHeartbeat, restoreFlushInterval, restoreMaxBatchSize := overrideCdcStreamTestConfig()
-	defer restoreHeartbeat()
-	defer restoreFlushInterval()
-	defer restoreMaxBatchSize()
+	cfg := testCdcStreamConfig(time.Hour, 2)
 
-	cdcStreamFlushInterval = time.Hour
-	cdcStreamMaxBatchSize = 2
-
-	var mu sync.Mutex
 	writeBatchIDs := []string{}
 	ackBatchIDs := []string{}
 	src := &fakeSourceConnector{
@@ -97,8 +83,6 @@ func TestRunCdcStreamFlushesWhenBatchSizeReached(t *testing.T) {
 			return nil
 		},
 		ackFn: func(ctx context.Context, position string) error {
-			mu.Lock()
-			defer mu.Unlock()
 			ackBatchIDs = append(ackBatchIDs, position)
 			return nil
 		},
@@ -108,20 +92,16 @@ func TestRunCdcStreamFlushesWhenBatchSizeReached(t *testing.T) {
 	}
 	dst := &fakeDestinationConnector{
 		writeBatchFn: func(ctx context.Context, batch connectors.RecordBatch) error {
-			mu.Lock()
-			defer mu.Unlock()
 			writeBatchIDs = append(writeBatchIDs, batch.BatchId)
 			return nil
 		},
 	}
 
-	err := runCdcStream(context.Background(), src, dst, testLogger())
+	err := runCdcStream(context.Background(), src, dst, cfg, testLogger())
 	if err != nil {
 		t.Fatalf("runCdcStream returned error: %v", err)
 	}
 
-	mu.Lock()
-	defer mu.Unlock()
 	if got, want := len(writeBatchIDs), 2; got != want {
 		t.Fatalf("unexpected write count: got %d want %d", got, want)
 	}
@@ -143,13 +123,7 @@ func TestRunCdcStreamFlushesWhenBatchSizeReached(t *testing.T) {
 }
 
 func TestRunCdcStreamReturnsDestinationError(t *testing.T) {
-	restoreHeartbeat, restoreFlushInterval, restoreMaxBatchSize := overrideCdcStreamTestConfig()
-	defer restoreHeartbeat()
-	defer restoreFlushInterval()
-	defer restoreMaxBatchSize()
-
-	cdcStreamFlushInterval = time.Hour
-	cdcStreamMaxBatchSize = 1
+	cfg := testCdcStreamConfig(time.Hour, 1)
 
 	expectedErr := errors.New("write failed")
 	src := &fakeSourceConnector{
@@ -172,7 +146,7 @@ func TestRunCdcStreamReturnsDestinationError(t *testing.T) {
 		},
 	}
 
-	err := runCdcStream(context.Background(), src, dst, testLogger())
+	err := runCdcStream(context.Background(), src, dst, cfg, testLogger())
 	if err == nil {
 		t.Fatal("expected runCdcStream to return an error")
 	}
@@ -182,13 +156,7 @@ func TestRunCdcStreamReturnsDestinationError(t *testing.T) {
 }
 
 func TestRunCdcStreamReturnsNonRetryableOnCriticalSourceError(t *testing.T) {
-	restoreHeartbeat, restoreFlushInterval, restoreMaxBatchSize := overrideCdcStreamTestConfig()
-	defer restoreHeartbeat()
-	defer restoreFlushInterval()
-	defer restoreMaxBatchSize()
-
-	cdcStreamFlushInterval = time.Hour
-	cdcStreamMaxBatchSize = 10
+	cfg := testCdcStreamConfig(time.Hour, 10)
 
 	expectedErr := errors.New("critical source failure")
 	src := &fakeSourceConnector{
@@ -211,7 +179,7 @@ func TestRunCdcStreamReturnsNonRetryableOnCriticalSourceError(t *testing.T) {
 		},
 	}
 
-	err := runCdcStream(context.Background(), src, dst, testLogger())
+	err := runCdcStream(context.Background(), src, dst, cfg, testLogger())
 	if err == nil {
 		t.Fatal("expected runCdcStream to return an error")
 	}
@@ -225,116 +193,3 @@ func TestRunCdcStreamReturnsNonRetryableOnCriticalSourceError(t *testing.T) {
 	}
 }
 
-func overrideCdcStreamTestConfig() (func(), func(), func()) {
-	restoreHeartbeat := func() {}
-	restoreFlushInterval := func() {}
-	restoreMaxBatchSize := func() {}
-
-	prevHeartbeat := recordActivityHeartbeat
-	recordActivityHeartbeat = func(context.Context, ...any) {}
-	restoreHeartbeat = func() {
-		recordActivityHeartbeat = prevHeartbeat
-	}
-
-	prevFlushInterval := cdcStreamFlushInterval
-	restoreFlushInterval = func() {
-		cdcStreamFlushInterval = prevFlushInterval
-	}
-
-	prevMaxBatchSize := cdcStreamMaxBatchSize
-	restoreMaxBatchSize = func() {
-		cdcStreamMaxBatchSize = prevMaxBatchSize
-	}
-
-	return restoreHeartbeat, restoreFlushInterval, restoreMaxBatchSize
-}
-
-func makeTestRecordBatch(batchID string, recordCount int) connectors.RecordBatch {
-	records := make([]connectors.Record, 0, recordCount)
-	for i := 0; i < recordCount; i++ {
-		records = append(records, connectors.InsertRecord{
-			BaseRecord: connectors.BaseRecord{
-				Table:   connectors.TableIdentifier{Schema: "public", Name: "users"},
-				Version: uint64(i + 1),
-			},
-		})
-	}
-	return connectors.RecordBatch{
-		BatchId: batchID,
-		Records: records,
-	}
-}
-
-func testLogger() *slog.Logger {
-	return slog.New(slog.NewTextHandler(io.Discard, nil))
-}
-
-type fakeSourceConnector struct {
-	readFn            func(ctx context.Context, ch chan<- connectors.RecordBatch) error
-	ackFn             func(ctx context.Context, position string) error
-	isCriticalErrorFn func(err error) bool
-}
-
-func (f *fakeSourceConnector) Teardown(ctx context.Context) error {
-	return nil
-}
-
-func (f *fakeSourceConnector) Close(ctx context.Context) error {
-	return nil
-}
-
-func (f *fakeSourceConnector) Setup(ctx context.Context) error {
-	return nil
-}
-
-func (f *fakeSourceConnector) Read(ctx context.Context, ch chan<- connectors.RecordBatch) error {
-	return f.readFn(ctx, ch)
-}
-
-func (f *fakeSourceConnector) IsCriticalError(err error) bool {
-	if f.isCriticalErrorFn == nil {
-		return false
-	}
-	return f.isCriticalErrorFn(err)
-}
-
-func (f *fakeSourceConnector) Ack(ctx context.Context, position string) error {
-	return f.ackFn(ctx, position)
-}
-
-func (f *fakeSourceConnector) GetTableSchemas(ctx context.Context) ([]connectors.TableSchema, error) {
-	return nil, nil
-}
-
-func (f *fakeSourceConnector) SnapshotTable(ctx context.Context, table connectors.TableSchema) (<-chan connectors.RecordBatch, error) {
-	return nil, nil
-}
-
-type fakeDestinationConnector struct {
-	writeBatchFn func(ctx context.Context, batch connectors.RecordBatch) error
-}
-
-func (f *fakeDestinationConnector) Teardown(ctx context.Context) error {
-	return nil
-}
-
-func (f *fakeDestinationConnector) Close(ctx context.Context) error {
-	return nil
-}
-
-func (f *fakeDestinationConnector) Setup(ctx context.Context, tables []connectors.TableSchema) error {
-	return nil
-}
-
-func (f *fakeDestinationConnector) WriteBatch(ctx context.Context, batch connectors.RecordBatch) error {
-	return f.writeBatchFn(ctx, batch)
-}
-
-func (f *fakeDestinationConnector) Write(ctx context.Context, ch <-chan connectors.RecordBatch) error {
-	for batch := range ch {
-		if err := f.writeBatchFn(ctx, batch); err != nil {
-			return err
-		}
-	}
-	return nil
-}

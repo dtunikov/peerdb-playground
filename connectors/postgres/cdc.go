@@ -190,6 +190,8 @@ func (c *SourceConnector) handleLogicalMessage(
 			if relErr != nil {
 				return criticalReplication(relErr)
 			}
+			// FIXME: we mustn't skip updates for tables with TOAST columns, will be fixed later
+			// right now even if we try to skip only TOAST columns - this will override their values with nulls on destination
 			c.logger.Warn("skipping update with unchanged TOAST columns",
 				"flowId", c.flowId,
 				"table", relationQualifiedName(rel),
@@ -221,6 +223,7 @@ func (c *SourceConnector) flushTransaction(
 ) error {
 	c.advanceReceivedLSN(commitLSN)
 	if len(txn.records) == 0 {
+		// even if there are no records, we still need to advance the acknowledged LSN to ensure progress and prevent reprocessing of already flushed transactions on restart
 		c.advanceAckedLSN(commitLSN)
 		txn.reset()
 		return nil
@@ -268,11 +271,9 @@ func (c *SourceConnector) sendStandbyStatus(ctx context.Context, replyRequested 
 func (c *SourceConnector) reconnect(ctx context.Context) error {
 	if c.replConn != nil {
 		c.replConn.Close(ctx)
-		c.replConn = nil
 	}
 	if c.conn != nil {
 		c.conn.Close(ctx)
-		c.conn = nil
 	}
 
 	conn, err := pg.Connect(ctx, c.cfg)

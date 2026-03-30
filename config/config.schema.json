@@ -48,6 +48,27 @@
         }
       }
     },
+    "cdc": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "flush_interval_ms": {
+          "type": "integer",
+          "description": "Default CDC flush interval in milliseconds.",
+          "default": 1000
+        },
+        "max_batch_size": {
+          "type": "integer",
+          "description": "Default maximum CDC batch size (number of records).",
+          "default": 10000
+        },
+        "heartbeat_interval_ms": {
+          "type": "integer",
+          "description": "Default CDC Temporal heartbeat interval in milliseconds.",
+          "default": 15000
+        }
+      }
+    },
     "encryption_key": {
       "type": "string",
       "description": "AES encryption key (16, 24, or 32 bytes hex-encoded) for encrypting peer configs."

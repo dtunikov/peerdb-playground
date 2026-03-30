@@ -12,16 +12,18 @@ import (
 )
 
 type PeerdbServiceServer struct {
-	peers    *peers.Service
-	flows    *flows.Service
-	temporal client.Client
+	peers         *peers.Service
+	flows         *flows.Service
+	temporal      client.Client
+	cdcTaskQueue  string
 }
 
-func NewServer(peers *peers.Service, flows *flows.Service, temporal client.Client) *PeerdbServiceServer {
+func NewServer(peers *peers.Service, flows *flows.Service, temporal client.Client, cdcTaskQueue string) *PeerdbServiceServer {
 	return &PeerdbServiceServer{
-		peers:    peers,
-		flows:    flows,
-		temporal: temporal,
+		peers:         peers,
+		flows:         flows,
+		temporal:      temporal,
+		cdcTaskQueue:  cdcTaskQueue,
 	}
 }
 
@@ -45,7 +47,7 @@ func (s *PeerdbServiceServer) CreateCDCFlow(ctx context.Context, req *gen.Create
 
 	_, err = s.temporal.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
 		ID:        fmt.Sprintf("cdc-flow-%s", id),
-		TaskQueue: "cdc-flow",
+		TaskQueue: s.cdcTaskQueue,
 	}, workflows.CdcFlowWorkflow, workflows.CdcFlowWorkflowInput{FlowId: id})
 	if err != nil {
 		return nil, fmt.Errorf("failed to start cdc workflow: %w", err)

@@ -16,7 +16,6 @@ import (
 
 type CdcStreamActivityInput struct {
 	FlowId string
-	Tables []*gen.TableSchema
 }
 
 // cdcStreamConfig holds resolved CDC stream parameters for a single run.

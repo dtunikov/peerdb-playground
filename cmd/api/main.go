@@ -81,7 +81,7 @@ func run() error {
 
 	mux := http.NewServeMux()
 	path, handler := genconnect.NewPeerdbServiceHandler(
-		server.NewServer(peersSvc, flowsSvc, tc),
+		server.NewServer(peersSvc, flowsSvc, tc, cfg.Temporal.CdcTaskQueue),
 		connect.WithInterceptors(
 			middleware.RequestID(),
 			middleware.LogRequest(),

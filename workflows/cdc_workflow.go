@@ -82,7 +82,7 @@ func CdcFlowWorkflow(ctx workflow.Context, input CdcFlowWorkflowInput) error {
 		return fmt.Errorf("failed to execute snapshot workflow: %w", err)
 	}
 
-	err = workflow.ExecuteActivity(cdcCtx, activities.CdcStreamActivity, CdcStreamActivityInput{FlowId: input.FlowId, Tables: setupOutput.Tables}).
+	err = workflow.ExecuteActivity(cdcCtx, activities.CdcStreamActivity, CdcStreamActivityInput{FlowId: input.FlowId}).
 		Get(cdcCtx, nil)
 	if err != nil {
 		return fmt.Errorf("cdc activity failed: %w", err)

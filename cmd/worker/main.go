@@ -67,7 +67,7 @@ func run() error {
 	}
 	defer tc.Close()
 
-	w := worker.New(tc, "cdc-flow", worker.Options{})
+	w := worker.New(tc, cfg.Temporal.CdcTaskQueue, worker.Options{})
 
 	activities := &workflows.Activities{}
 	workflows.Init(activities, flowsSvc, peersSvc, cfg.Cdc)

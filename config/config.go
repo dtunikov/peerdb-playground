@@ -23,7 +23,8 @@ type PostgresConfig struct {
 }
 
 type TemporalConfig struct {
-	HostPort string `yaml:"host_port" env:"TEMPORAL_HOST_PORT" envDefault:"localhost:7233"`
+	HostPort     string `yaml:"host_port" env:"TEMPORAL_HOST_PORT" envDefault:"localhost:7233"`
+	CdcTaskQueue string `yaml:"cdc_task_queue" env:"TEMPORAL_CDC_TASK_QUEUE" envDefault:"cdc-flow"`
 }
 
 type CdcConfig struct {

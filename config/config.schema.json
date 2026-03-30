@@ -45,6 +45,11 @@
           "type": "string",
           "description": "Temporal server host:port.",
           "default": "localhost:7233"
+        },
+        "cdc_task_queue": {
+          "type": "string",
+          "description": "Temporal task queue name for CDC flows.",
+          "default": "cdc-flow"
         }
       }
     },

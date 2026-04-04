@@ -12,47 +12,115 @@ import (
 )
 
 func TestDecodeTupleColumns(t *testing.T) {
-	rel := &pglogrepl.RelationMessage{
-		Namespace:    "public",
-		RelationName: "users",
-		Columns: []*pglogrepl.RelationMessageColumn{
-			{Name: "id", DataType: pgtype.Int4OID},
-			{Name: "name", DataType: pgtype.TextOID},
-			{Name: "active", DataType: pgtype.BoolOID},
+	testCases := []struct {
+		name        string
+		rel         *pglogrepl.RelationMessage
+		tableSchema connectors.TableSchema
+		tuple       *pglogrepl.TupleData
+		expected    []any
+		wantErr     bool
+	}{
+		{
+			name: "text columns",
+			rel: &pglogrepl.RelationMessage{
+				Namespace:    "public",
+				RelationName: "users",
+				Columns: []*pglogrepl.RelationMessageColumn{
+					{Name: "id", DataType: pgtype.Int4OID},
+					{Name: "name", DataType: pgtype.TextOID},
+					{Name: "active", DataType: pgtype.BoolOID},
+				},
+			},
+			tableSchema: connectors.TableSchema{
+				Table: connectors.TableIdentifier{Schema: "public", Name: "users"},
+				Columns: []connectors.ColumnSchema{
+					{Name: "id", Type: types.QTypeInt32{}},
+					{Name: "name", Type: types.QTypeString{}},
+					{Name: "active", Type: types.QTypeBool{}},
+				},
+			},
+			tuple: &pglogrepl.TupleData{
+				Columns: []*pglogrepl.TupleDataColumn{
+					{DataType: pglogrepl.TupleDataTypeText, Data: []byte("42")},
+					{DataType: pglogrepl.TupleDataTypeText, Data: []byte("alice")},
+					{DataType: pglogrepl.TupleDataTypeText, Data: []byte("t")},
+				},
+			},
+			expected: []any{int32(42), "alice", true},
 		},
-	}
-	tableSchema := connectors.TableSchema{
-		Table: connectors.TableIdentifier{Schema: "public", Name: "users"},
-		Columns: []connectors.ColumnSchema{
-			{Name: "id", Type: types.QTypeInt32{}},
-			{Name: "name", Type: types.QTypeString{}},
-			{Name: "active", Type: types.QTypeBool{}},
+		{
+			name: "null column",
+			rel: &pglogrepl.RelationMessage{
+				Namespace:    "public",
+				RelationName: "users",
+				Columns: []*pglogrepl.RelationMessageColumn{
+					{Name: "id", DataType: pgtype.Int4OID},
+					{Name: "name", DataType: pgtype.TextOID},
+				},
+			},
+			tableSchema: connectors.TableSchema{
+				Table: connectors.TableIdentifier{Schema: "public", Name: "users"},
+				Columns: []connectors.ColumnSchema{
+					{Name: "id", Type: types.QTypeInt32{}},
+					{Name: "name", Type: types.QTypeString{}},
+				},
+			},
+			tuple: &pglogrepl.TupleData{
+				Columns: []*pglogrepl.TupleDataColumn{
+					{DataType: pglogrepl.TupleDataTypeText, Data: []byte("1")},
+					{DataType: pglogrepl.TupleDataTypeNull},
+				},
+			},
+			expected: []any{int32(1), nil},
 		},
-	}
-	tuple := &pglogrepl.TupleData{
-		Columns: []*pglogrepl.TupleDataColumn{
-			{DataType: pglogrepl.TupleDataTypeText, Data: []byte("42")},
-			{DataType: pglogrepl.TupleDataTypeText, Data: []byte("alice")},
-			{DataType: pglogrepl.TupleDataTypeText, Data: []byte("t")},
+		{
+			name: "binary returns error",
+			rel: &pglogrepl.RelationMessage{
+				Namespace:    "public",
+				RelationName: "users",
+				Columns: []*pglogrepl.RelationMessageColumn{
+					{Name: "id", DataType: pgtype.Int4OID},
+				},
+			},
+			tableSchema: connectors.TableSchema{
+				Table: connectors.TableIdentifier{Schema: "public", Name: "users"},
+				Columns: []connectors.ColumnSchema{
+					{Name: "id", Type: types.QTypeInt32{}},
+				},
+			},
+			tuple: &pglogrepl.TupleData{
+				Columns: []*pglogrepl.TupleDataColumn{
+					{DataType: pglogrepl.TupleDataTypeBinary, Data: []byte{0x00, 0x01}},
+				},
+			},
+			wantErr: true,
 		},
 	}
 
-	values, skip, err := decodeTupleColumns(pgtype.NewMap(), rel, tableSchema, tuple)
-	if err != nil {
-		t.Fatalf("decodeTupleColumns returned error: %v", err)
-	}
-	if skip {
-		t.Fatal("decodeTupleColumns unexpectedly requested skip")
-	}
-	if len(values) != 3 {
-		t.Fatalf("unexpected value count: got %d want 3", len(values))
-	}
-
-	expected := []any{int32(42), "alice", true}
-	for i, v := range values {
-		if got, want := v.Value.Value(), expected[i]; got != want {
-			t.Fatalf("unexpected value for column %d: got %v want %v", i, got, want)
-		}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			values, skip, err := decodeTupleColumns(pgtype.NewMap(), tc.rel, tc.tableSchema, tc.tuple)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if skip {
+				t.Fatal("unexpected skip")
+			}
+			if len(values) != len(tc.expected) {
+				t.Fatalf("value count: got %d want %d", len(values), len(tc.expected))
+			}
+			for i, v := range values {
+				if got, want := v.Value.Value(), tc.expected[i]; got != want {
+					t.Fatalf("column %d: got %v want %v", i, got, want)
+				}
+			}
+		})
 	}
 }
 
@@ -162,21 +230,21 @@ func TestAckIsMonotonic(t *testing.T) {
 	if err := connector.Ack(context.Background(), "0/20"); err != nil {
 		t.Fatalf("Ack returned error: %v", err)
 	}
-	if got, want := connector.lastAckedLSN.String(), "0/20"; got != want {
+	if got, want := pglogrepl.LSN(connector.lastAckedLSN.Load()).String(), "0/20"; got != want {
 		t.Fatalf("unexpected acked lsn after first ack: got %s want %s", got, want)
 	}
 
 	if err := connector.Ack(context.Background(), "0/10"); err != nil {
 		t.Fatalf("Ack returned error for stale lsn: %v", err)
 	}
-	if got, want := connector.lastAckedLSN.String(), "0/20"; got != want {
+	if got, want := pglogrepl.LSN(connector.lastAckedLSN.Load()).String(), "0/20"; got != want {
 		t.Fatalf("stale ack moved lsn backwards: got %s want %s", got, want)
 	}
 
 	if err := connector.Ack(context.Background(), "0/30"); err != nil {
 		t.Fatalf("Ack returned error for newer lsn: %v", err)
 	}
-	if got, want := connector.lastAckedLSN.String(), "0/30"; got != want {
+	if got, want := pglogrepl.LSN(connector.lastAckedLSN.Load()).String(), "0/30"; got != want {
 		t.Fatalf("unexpected acked lsn after newer ack: got %s want %s", got, want)
 	}
 }

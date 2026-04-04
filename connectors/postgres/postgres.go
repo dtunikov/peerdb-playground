@@ -7,7 +7,7 @@ import (
 	"peerdb-playground/connectors"
 	"peerdb-playground/pkg/postgres"
 	"strings"
-	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pglogrepl"
@@ -29,9 +29,8 @@ type SourceConnector struct {
 	// publication name to use for this flow (will be generated if not provided in config)
 	publicationName string
 
-	stateMu         sync.Mutex
-	lastReceivedLSN pglogrepl.LSN
-	lastAckedLSN    pglogrepl.LSN
+	lastReceivedLSN atomic.Uint64
+	lastAckedLSN    atomic.Uint64
 }
 
 func NewConnector(ctx context.Context, flowId string, connConfig postgres.Config, logger *slog.Logger,
@@ -310,38 +309,29 @@ func (c *SourceConnector) resolvedPublicationName() string {
 }
 
 func (c *SourceConnector) advanceReceivedLSN(lsn pglogrepl.LSN) {
-	c.stateMu.Lock()
-	defer c.stateMu.Unlock()
-
-	if lsn > c.lastReceivedLSN {
-		c.lastReceivedLSN = lsn
+	for {
+		cur := pglogrepl.LSN(c.lastReceivedLSN.Load())
+		if lsn <= cur || c.lastReceivedLSN.CompareAndSwap(uint64(cur), uint64(lsn)) {
+			return
+		}
 	}
 }
 
+// advanceAckedLSN atomic update lastAchedLSN, it has to be atomic, because it can be read by replication loop AND updated by Ack method concurrently. It only advances forward and never goes back, so it's safe to just ignore updates that are older than the current value.
 func (c *SourceConnector) advanceAckedLSN(lsn pglogrepl.LSN) {
-	c.stateMu.Lock()
-	defer c.stateMu.Unlock()
-
-	if lsn > c.lastAckedLSN {
-		c.lastAckedLSN = lsn
+	for {
+		cur := pglogrepl.LSN(c.lastAckedLSN.Load())
+		if lsn <= cur || c.lastAckedLSN.CompareAndSwap(uint64(cur), uint64(lsn)) {
+			return
+		}
 	}
 }
 
 func (c *SourceConnector) initializeConfirmedLSN(lsn pglogrepl.LSN) {
-	c.stateMu.Lock()
-	defer c.stateMu.Unlock()
-
-	if lsn > c.lastReceivedLSN {
-		c.lastReceivedLSN = lsn
-	}
-	if lsn > c.lastAckedLSN {
-		c.lastAckedLSN = lsn
-	}
+	c.advanceReceivedLSN(lsn)
+	c.advanceAckedLSN(lsn)
 }
 
 func (c *SourceConnector) replicationPositions() (pglogrepl.LSN, pglogrepl.LSN) {
-	c.stateMu.Lock()
-	defer c.stateMu.Unlock()
-
-	return c.lastReceivedLSN, c.lastAckedLSN
+	return pglogrepl.LSN(c.lastReceivedLSN.Load()), pglogrepl.LSN(c.lastAckedLSN.Load())
 }

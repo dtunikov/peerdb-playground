@@ -6,17 +6,28 @@ import (
 	"log/slog"
 	"peerdb-playground/connectors"
 	ch "peerdb-playground/connectors/clickhouse"
+	my "peerdb-playground/connectors/mysql"
 	pg "peerdb-playground/connectors/postgres"
 	"peerdb-playground/gen"
 	"peerdb-playground/pkg/clickhouse"
+	pkgmysql "peerdb-playground/pkg/mysql"
 	"peerdb-playground/pkg/postgres"
 )
 
-func newSourceConnector(ctx context.Context, flowId string, peer *gen.Peer, flowCfg *gen.CdcFlowConfig, logger *slog.Logger) (connectors.SourceConnector, error) {
+func newSourceConnector(
+	ctx context.Context,
+	flowId string,
+	peer *gen.Peer,
+	flowCfg *gen.CdcFlowConfig,
+	logger *slog.Logger,
+	resumeCheckpoint string,
+) (connectors.SourceConnector, error) {
 	switch peer.Type {
 	case gen.PeerType_POSTGRES:
 		return pg.NewConnector(ctx, flowId, postgres.ConfigFromProto(peer.GetPostgresConfig()), logger, flowCfg.GetTables(),
-			flowCfg.GetPostgresSource().GetPublicationName())
+			flowCfg.GetPostgresSource().GetPublicationName(), resumeCheckpoint)
+	case gen.PeerType_MYSQL:
+		return my.NewConnector(ctx, flowId, pkgmysql.ConfigFromProto(peer.GetMysqlConfig()), logger, flowCfg.GetTables(), resumeCheckpoint)
 	default:
 		return nil, fmt.Errorf("unsupported source peer type: %s", peer.Type)
 	}

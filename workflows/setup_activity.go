@@ -13,7 +13,8 @@ type SetupActivityInput struct {
 }
 
 type SetupActivityOutput struct {
-	Tables []*gen.TableSchema
+	Tables                  []*gen.TableSchema
+	InitialSourceCheckpoint string
 }
 
 func (a *Activities) SetupActivity(ctx context.Context, input SetupActivityInput) (*SetupActivityOutput, error) {
@@ -33,13 +34,13 @@ func (a *Activities) SetupActivity(ctx context.Context, input SetupActivityInput
 	logger := slog.With("flowId", input.FlowId)
 	logger.Info("setting up connectors for flow")
 
-	srcConn, err := newSourceConnector(ctx, input.FlowId, source, flow.GetConfig(), logger)
+	srcConn, err := newSourceConnector(ctx, input.FlowId, source, flow.GetConfig(), logger, "")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create source connector: %w", err)
 	}
 	defer srcConn.Close(ctx)
 
-	err = srcConn.Setup(ctx)
+	initialCheckpoint, err := srcConn.Setup(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup source connector: %w", err)
 	}
@@ -62,6 +63,7 @@ func (a *Activities) SetupActivity(ctx context.Context, input SetupActivityInput
 
 	logger.Info("connectors setup complete")
 	return &SetupActivityOutput{
-		Tables: connectors.TableSchemasToProto(tables),
+		Tables:                  connectors.TableSchemasToProto(tables),
+		InitialSourceCheckpoint: initialCheckpoint,
 	}, nil
 }

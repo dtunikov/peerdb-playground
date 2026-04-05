@@ -1,12 +1,12 @@
 # PeerDB Playground — Architecture
 
-CDC (Change Data Capture) tool that moves data from sources (Postgres) to destinations (ClickHouse).
+CDC (Change Data Capture) tool that moves data from sources (Postgres, MySQL) to destinations (ClickHouse).
 
 ## Current State
 
-- **Snapshot pipeline**: fully working end-to-end (Postgres -> ClickHouse)
-- **CDC streaming**: working end-to-end for Postgres -> ClickHouse
-- **Supported sources**: Postgres (logical replication)
+- **Snapshot pipeline**: fully working end-to-end (Postgres/MySQL -> ClickHouse)
+- **CDC streaming**: working end-to-end for Postgres -> ClickHouse and MySQL -> ClickHouse
+- **Supported sources**: Postgres (logical replication), MySQL 8 (GTID + row-based binlog)
 - **Supported destinations**: ClickHouse (ReplacingMergeTree)
 
 ## Project Structure
@@ -19,6 +19,7 @@ config/         — Config loading + JSON schema validation
 connectors/     — Source/destination connector interfaces and implementations
   types/        — QType (column types) and QValue (column values) — source-agnostic type system
   postgres/     — Postgres source connector (publication, slot, snapshot, schema discovery)
+  mysql/        — MySQL source connector (snapshot, schema discovery, GTID/binlog CDC)
   clickhouse/   — ClickHouse destination connector (table creation, batch writes)
 e2e/            — End-to-end tests with testcontainers
 errs/           — Application error types (maps to Connect RPC codes)
@@ -27,6 +28,7 @@ middleware/     — HTTP interceptors (request ID, logging, error handling)
 migrations/     — SQL migrations for peerdb metadata database
 pkg/
   postgres/     — Postgres utilities (connect, publications, replication slots)
+  mysql/        — MySQL utilities (connect, GTID/prerequisite inspection)
   clickhouse/   — ClickHouse utilities (connect)
   crypto/       — AES encryption for peer configs
 proto/
@@ -78,9 +80,9 @@ type DestinationConnector interface {
 
 ### Table Configuration
 
-- `CdcFlowConfig.tables` — schema-qualified names controlling publication scope. Empty = all tables.
+- `CdcFlowConfig.tables` — fully qualified names controlling source table scope. Postgres uses `schema.table`; MySQL uses `database.table`. Empty = all source tables for that peer.
 - `CdcFlowConfig.table_mappings` — optional source->destination rename + column exclusion. Independent from publication.
-- Publication is the source of truth for which tables are replicated.
+- Postgres publication or MySQL table filtering is the source of truth for which tables are replicated.
 - Column exclusion is applied at the activity layer (before calling `SnapshotTable`), not inside connectors.
 
 ### ClickHouse Destination
@@ -106,6 +108,17 @@ type DestinationConnector interface {
 - `Ack` advances the connector's acknowledged LSN so standby status updates can move the slot forward
 - Transient replication failures reconnect with backoff; critical failures such as a missing slot are surfaced as unrecoverable
 - Inserts and updates are both materialized as insert-like records; deletes/truncates are not implemented yet
+
+### MySQL Source
+
+- Validates `log_bin=ON`, `gtid_mode=ON`, `binlog_format=ROW`, and `binlog_row_image=FULL`
+- `Setup` captures the current executed GTID set as the initial CDC watermark
+- `GetTableSchemas` queries `information_schema.columns` + `information_schema.statistics` for PK detection
+- `Read` uses `COM_BINLOG_DUMP_GTID` via `go-mysql` and resumes from the last persisted GTID checkpoint
+- CDC records are buffered per transaction and emitted as one `RecordBatch` per commit
+- `RecordBatch.BatchId` is the cumulative GTID set string and is the contract used by `Ack`
+- ClickHouse `_version` is derived from the current binlog file sequence plus end position
+- Inserts and updates are materialized as insert-like records; deletes, truncates, and DDL are ignored in v1
 
 ### Workflow Architecture
 
@@ -140,6 +153,7 @@ CdcFlowWorkflow (main)
 
 - Peer configs (connection params) are encrypted with AES and stored as bytes in peerdb-postgres
 - Flow configs are serialized as protobuf bytes
+- Source checkpoints are persisted in peerdb-postgres so MySQL CDC can resume from the last acknowledged GTID set
 - Table schemas cross the Temporal boundary as proto messages (`internal.proto`), converted to/from `connectors.TableSchema` via `schema_convert.go`
 
 ### Error Handling

@@ -17,7 +17,8 @@ type Connector interface {
 
 type SourceConnector interface {
 	Connector
-	Setup(ctx context.Context) error
+	// Setup prepares the source for snapshot + CDC and may return an initial CDC checkpoint.
+	Setup(ctx context.Context) (string, error)
 	// Read should continuously read changes from the source and send them to the provided channel until the context is canceled or unrecoverable error occurs.
 	// The implementation should handle reconnections and resume from the last position in case of transient errors.
 	Read(ctx context.Context, ch chan<- RecordBatch) error

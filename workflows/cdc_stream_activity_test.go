@@ -17,6 +17,7 @@ func testCdcStreamConfig(flushInterval time.Duration, maxBatchSize int) cdcStrea
 		maxBatchSize:      maxBatchSize,
 		heartbeatInterval: time.Hour, // effectively disabled for tests
 		recordHeartbeat:   func(context.Context, ...any) {},
+		persistCheckpoint: func(context.Context, string) error { return nil },
 	}
 }
 
@@ -190,5 +191,95 @@ func TestRunCdcStreamReturnsNonRetryableOnCriticalSourceError(t *testing.T) {
 	}
 	if !appErr.NonRetryable() {
 		t.Fatal("expected critical source failure to be non-retryable")
+	}
+}
+
+func TestFlushCdcBatchPersistsCheckpointAfterAck(t *testing.T) {
+	cfg := testCdcStreamConfig(time.Hour, 10)
+
+	acks := []string{}
+	checkpoints := []string{}
+	src := &fakeSourceConnector{
+		ackFn: func(ctx context.Context, position string) error {
+			acks = append(acks, position)
+			return nil
+		},
+	}
+	dst := &fakeDestinationConnector{
+		writeBatchFn: func(ctx context.Context, batch connectors.RecordBatch) error {
+			return nil
+		},
+	}
+	cfg.persistCheckpoint = func(ctx context.Context, checkpoint string) error {
+		checkpoints = append(checkpoints, checkpoint)
+		return nil
+	}
+
+	pending := cdcBatchAccumulator{}
+	pending.add(makeTestRecordBatch("checkpoint-1", 2))
+
+	if err := flushCdcBatch(context.Background(), src, dst, cfg, &pending, testLogger()); err != nil {
+		t.Fatalf("flushCdcBatch returned error: %v", err)
+	}
+	if got, want := len(acks), 1; got != want {
+		t.Fatalf("unexpected ack count: got %d want %d", got, want)
+	}
+	if got, want := len(checkpoints), 1; got != want {
+		t.Fatalf("unexpected checkpoint count: got %d want %d", got, want)
+	}
+	if got, want := checkpoints[0], "checkpoint-1"; got != want {
+		t.Fatalf("unexpected checkpoint: got %s want %s", got, want)
+	}
+}
+
+func TestRunCdcStreamFlushesCheckpointOnlyBatch(t *testing.T) {
+	cfg := testCdcStreamConfig(time.Hour, 10)
+
+	acks := []string{}
+	checkpoints := []string{}
+	src := &fakeSourceConnector{
+		readFn: func(ctx context.Context, ch chan<- connectors.RecordBatch) error {
+			defer close(ch)
+			ch <- connectors.RecordBatch{BatchId: "gtid-1"}
+			return nil
+		},
+		ackFn: func(ctx context.Context, position string) error {
+			acks = append(acks, position)
+			return nil
+		},
+	}
+	dst := &fakeDestinationConnector{
+		writeBatchFn: func(ctx context.Context, batch connectors.RecordBatch) error {
+			if len(batch.Records) != 0 {
+				t.Fatalf("expected checkpoint-only batch to have no records, got %d", len(batch.Records))
+			}
+			return nil
+		},
+	}
+	cfg.persistCheckpoint = func(ctx context.Context, checkpoint string) error {
+		checkpoints = append(checkpoints, checkpoint)
+		return nil
+	}
+
+	if err := runCdcStream(context.Background(), src, dst, cfg, testLogger()); err != nil {
+		t.Fatalf("runCdcStream returned error: %v", err)
+	}
+	if got, want := len(acks), 1; got != want {
+		t.Fatalf("unexpected ack count: got %d want %d", got, want)
+	}
+	if got, want := acks[0], "gtid-1"; got != want {
+		t.Fatalf("unexpected checkpoint-only ack: got %s want %s", got, want)
+	}
+	if got, want := checkpoints[0], "gtid-1"; got != want {
+		t.Fatalf("unexpected checkpoint-only persisted value: got %s want %s", got, want)
+	}
+}
+
+func TestResolveSourceCheckpointPrefersSavedValue(t *testing.T) {
+	if got, want := resolveSourceCheckpoint("saved", "initial"), "saved"; got != want {
+		t.Fatalf("unexpected resolved checkpoint: got %s want %s", got, want)
+	}
+	if got, want := resolveSourceCheckpoint("", "initial"), "initial"; got != want {
+		t.Fatalf("unexpected fallback checkpoint: got %s want %s", got, want)
 	}
 }

@@ -4,16 +4,18 @@ import (
 	"context"
 	"crypto/rand"
 	"database/sql"
-	"fmt"
 	"io"
 	"log/slog"
 	"net/http/httptest"
+	"slices"
 	"testing"
 	"time"
 
 	"peerdb-playground/gen"
 	"peerdb-playground/gen/genconnect"
 	"peerdb-playground/server"
+
+	sq "github.com/Masterminds/squirrel"
 
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -34,16 +36,21 @@ type sqlExecContext interface {
 	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 }
 
-type sourceTableSpec struct {
-	NamePrefix string
-	CreateSQL  func(qualifiedName string) string
-	SeedSQL    func(qualifiedName string) string
-	DropSQL    func(qualifiedName string) string
+type sourceDialect struct {
+	Schema            string
+	PlaceholderFormat sq.PlaceholderFormat
 }
 
-type sourceTableFixture struct {
-	Name          string
-	QualifiedName string
+var postgresDialect = sourceDialect{
+	Schema:            "public",
+	PlaceholderFormat: sq.Dollar,
+}
+
+func mysqlDialect(database string) sourceDialect {
+	return sourceDialect{
+		Schema:            database,
+		PlaceholderFormat: sq.Question,
+	}
 }
 
 type GRPCE2ESuite struct {
@@ -52,10 +59,12 @@ type GRPCE2ESuite struct {
 	ctx context.Context
 
 	pgContainer *tcpg.PostgresContainer
+	mysqlContainer testcontainers.Container
 	chContainer testcontainers.Container
 
 	pgPool   *pgxpool.Pool
 	pgDB     *sql.DB
+	mysqlDB  *sql.DB
 	chConn   driver.Conn
 	worker   worker.Worker
 	api      *httptest.Server
@@ -65,6 +74,8 @@ type GRPCE2ESuite struct {
 	temporalClient  client.Client
 	postgresHost    string
 	postgresPort    uint32
+	mysqlHost       string
+	mysqlPort       uint32
 	clickhouseHost  string
 	clickhousePort  uint32
 	lastWorkflowID  string
@@ -83,6 +94,7 @@ func (s *GRPCE2ESuite) SetupSuite() {
 
 	s.startPostgres()
 	s.runMigrations()
+	s.startMySQL()
 	s.startClickHouse()
 	s.startTemporal()
 	s.startWorkerAndAPI()
@@ -100,11 +112,17 @@ func (s *GRPCE2ESuite) TearDownTest() {
 	s.lastWorkflowID = ""
 }
 
-func (s *GRPCE2ESuite) testCdcFlow(ctx context.Context, sourcePeerId string, sourceConn sqlExecContext, cdcFlowSourceConfig gen.CdcFlowConfigSourceConfig) {
+func (s *GRPCE2ESuite) testCdcFlow(
+	ctx context.Context,
+	sourcePeerId string,
+	sourceConn sqlExecContext,
+	dialect sourceDialect,
+	cdcFlowSourceConfig gen.CdcFlowConfigSourceConfig,
+) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	table := s.createAndSeedUsersTable(ctx, sourceConn)
+	tableName, qualifiedName, seedRows := s.createAndSeedUsersTable(ctx, sourceConn, dialect)
 	var snapshotRows []userRow
 	var snapshotErr error
 
@@ -116,7 +134,7 @@ func (s *GRPCE2ESuite) testCdcFlow(ctx context.Context, sourcePeerId string, sou
 			Source:      sourcePeerId,
 			Destination: destPeerId,
 			Config: &gen.CdcFlowConfig{
-				Tables:       []string{table.QualifiedName},
+				Tables:       []string{qualifiedName},
 				SourceConfig: cdcFlowSourceConfig,
 			},
 		},
@@ -127,42 +145,46 @@ func (s *GRPCE2ESuite) testCdcFlow(ctx context.Context, sourcePeerId string, sou
 
 	s.Require().Eventuallyf(
 		func() bool {
-			snapshotRows, snapshotErr = s.loadUsersTableFromClickhouse(ctx, table.Name)
+			snapshotRows, snapshotErr = s.loadUsersTableFromClickhouse(ctx, tableName)
 			if snapshotErr != nil {
 				return false
 			}
-			return len(snapshotRows) == 2 &&
-				snapshotRows[0] == (userRow{ID: 1, Name: "alice"}) &&
-				snapshotRows[1] == (userRow{ID: 2, Name: "bob"})
+			return slices.Equal(seedRows, snapshotRows)
 		},
 		45*time.Second,
 		1*time.Second,
 		"snapshot table=%s rows=%v err=%v",
-		table.Name,
+		tableName,
 		snapshotRows,
 		snapshotErr,
 	)
 
-	_, err = s.pgDB.ExecContext(ctx, fmt.Sprintf(`INSERT INTO %s (id, name) VALUES ($1, $2)`, table.QualifiedName), 3, "carol")
+	cdcRow := userRow{ID: 3, Name: "carol"}
+	insertSQL, insertArgs, err := sq.StatementBuilder.
+		PlaceholderFormat(dialect.PlaceholderFormat).
+		Insert(qualifiedName).
+		Columns("id", "name").
+		Values(cdcRow.ID, cdcRow.Name).
+		ToSql()
+	s.Require().NoError(err)
+	_, err = sourceConn.ExecContext(ctx, insertSQL, insertArgs...)
 	s.Require().NoError(err)
 
+	expectedRows := append(seedRows, cdcRow)
 	var cdcErr error
 	var cdcRows []userRow
 	s.Require().Eventually(
 		func() bool {
-			cdcRows, cdcErr = s.loadUsersTableFromClickhouse(ctx, table.Name)
-			if err != nil {
+			cdcRows, cdcErr = s.loadUsersTableFromClickhouse(ctx, tableName)
+			if cdcErr != nil {
 				return false
 			}
-			return len(cdcRows) == 3 &&
-				cdcRows[0] == (userRow{ID: 1, Name: "alice"}) &&
-				cdcRows[1] == (userRow{ID: 2, Name: "bob"}) &&
-				cdcRows[2] == (userRow{ID: 3, Name: "carol"})
+			return slices.Equal(expectedRows, cdcRows)
 		},
 		45*time.Second,
 		1*time.Second,
 		"cdc table=%s rows=%v err=%v",
-		table.Name,
+		tableName,
 		cdcRows,
 		cdcErr,
 	)
@@ -170,8 +192,15 @@ func (s *GRPCE2ESuite) testCdcFlow(ctx context.Context, sourcePeerId string, sou
 
 func (s *GRPCE2ESuite) TestCdcPostgres() {
 	sourcePeerId := s.createPostgresPeer(s.ctx)
-	s.testCdcFlow(s.ctx, sourcePeerId, s.pgDB, &gen.CdcFlowConfig_PostgresSource{
+	s.testCdcFlow(s.ctx, sourcePeerId, s.pgDB, postgresDialect, &gen.CdcFlowConfig_PostgresSource{
 		PostgresSource: &gen.PostgresSourceConfig{},
+	})
+}
+
+func (s *GRPCE2ESuite) TestCdcMySQL() {
+	sourcePeerID := s.createMySQLPeer(s.ctx)
+	s.testCdcFlow(s.ctx, sourcePeerID, s.mysqlDB, mysqlDialect(mysqlDatabase), &gen.CdcFlowConfig_MysqlSource{
+		MysqlSource: &gen.MysqlSourceConfig{},
 	})
 }
 

@@ -2,18 +2,22 @@ package flows
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"peerdb-playground/errs"
 	"peerdb-playground/gen"
+	"peerdb-playground/pkg/mysql"
 	"peerdb-playground/pkg/postgres"
 	"peerdb-playground/services/peers"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/protobuf/proto"
 )
 
 const (
 	cdcFlowTable = "cdc_flows"
+	sourceCheckpointTable = "cdc_flow_source_checkpoints"
 )
 
 const (
@@ -85,6 +89,20 @@ func (s *Service) ValidateFlow(ctx context.Context, flow *gen.CDCFlow) error {
 				return errs.BadRequest.WithMessage(fmt.Sprintf("publication %s does not exist on source peer", cfg.PostgresSource.PublicationName))
 			}
 		}
+	case *gen.CdcFlowConfig_MysqlSource:
+		if src.Type != gen.PeerType_MYSQL {
+			return errs.BadRequest.WithMessage("cdc flow source config is for mysql, but source peer is not mysql")
+		}
+
+		srcConn, err := mysql.ConnectFromProto(ctx, src.GetMysqlConfig())
+		if err != nil {
+			return errs.BadRequest.WithMessage("failed to connect to source peer").WithDetail(err)
+		}
+		defer srcConn.Close()
+
+		if err := mysql.ValidateCDCPrerequisites(ctx, srcConn); err != nil {
+			return errs.BadRequest.WithMessage("mysql source is not configured for cdc").WithDetail(err)
+		}
 	default:
 		return errs.BadRequest.WithMessage("unsupported source config type")
 	}
@@ -144,4 +162,48 @@ func (s *Service) GetFlow(ctx context.Context, id string) (*gen.CDCFlow, error) 
 	}
 
 	return &flow, nil
+}
+
+func (s *Service) GetSourceCheckpoint(ctx context.Context, flowID string) (string, error) {
+	sql, args, err := postgres.Sql.
+		Select("checkpoint").
+		From(sourceCheckpointTable).
+		Where("flow_id = ?", flowID).
+		ToSql()
+	if err != nil {
+		return "", fmt.Errorf("failed to build query: %w", err)
+	}
+
+	var checkpoint string
+	err = s.pg.QueryRow(ctx, sql, args...).Scan(&checkpoint)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", nil
+		}
+		return "", fmt.Errorf("failed to execute query: %w", err)
+	}
+
+	return checkpoint, nil
+}
+
+func (s *Service) SaveSourceCheckpoint(ctx context.Context, flowID, checkpoint string) error {
+	if checkpoint == "" {
+		return nil
+	}
+
+	sql, args, err := postgres.Sql.
+		Insert(sourceCheckpointTable).
+		Columns("flow_id", "checkpoint").
+		Values(flowID, checkpoint).
+		Suffix("ON CONFLICT (flow_id) DO UPDATE SET checkpoint = EXCLUDED.checkpoint, updated_at = now()").
+		ToSql()
+	if err != nil {
+		return fmt.Errorf("failed to build query: %w", err)
+	}
+
+	if _, err := s.pg.Exec(ctx, sql, args...); err != nil {
+		return fmt.Errorf("failed to execute query: %w", err)
+	}
+
+	return nil
 }

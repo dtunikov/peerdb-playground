@@ -128,13 +128,18 @@ func ConnectReplication(ctx context.Context, cfg Config) (*pgconn.PgConn, error)
 	return conn, nil
 }
 
-func CreateReplicationSlot(ctx context.Context, conn *pgconn.PgConn, name string) error {
-	_, err := pglogrepl.CreateReplicationSlot(ctx, conn, name, "pgoutput", pglogrepl.CreateReplicationSlotOptions{})
+func CreateReplicationSlot(ctx context.Context, conn *pgconn.PgConn, name string) (pglogrepl.LSN, error) {
+	result, err := pglogrepl.CreateReplicationSlot(ctx, conn, name, "pgoutput", pglogrepl.CreateReplicationSlotOptions{})
 	if err != nil {
-		return fmt.Errorf("failed to create replication slot: %w", err)
+		return 0, fmt.Errorf("failed to create replication slot: %w", err)
 	}
 
-	return nil
+	lsn, err := pglogrepl.ParseLSN(result.ConsistentPoint)
+	if err != nil {
+		return 0, fmt.Errorf("failed to parse consistent point LSN %q from new slot %s: %w", result.ConsistentPoint, name, err)
+	}
+
+	return lsn, nil
 }
 
 func LoadReplicationSlotLSN(ctx context.Context, conn *pgx.Conn, name string) (pglogrepl.LSN, error) {

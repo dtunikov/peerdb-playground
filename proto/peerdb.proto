@@ -11,6 +11,14 @@ message PostgresConfig {
   string ssl_mode = 6;
 }
 
+message MysqlConfig {
+  string host = 1;
+  uint32 port = 2;
+  string user = 3;
+  string password = 4;
+  string database = 5;
+}
+
 message ClickhouseConfig {
   string host = 1;
   uint32 port = 2;
@@ -32,6 +40,7 @@ enum PeerType {
   UNSPECIFIED = 0;
   POSTGRES = 1;
   CLICKHOUSE = 2;
+  MYSQL = 3;
 }
 
 message Peer {
@@ -40,6 +49,7 @@ message Peer {
   oneof config {
     PostgresConfig postgres_config = 3;
     ClickhouseConfig clickhouse_config = 4;
+    MysqlConfig mysql_config = 6;
   }
   PeerType type = 5;
 }
@@ -53,14 +63,19 @@ message PostgresSourceConfig {
   string publication_name = 1;
 }
 
+message MysqlSourceConfig {}
+
 message CdcFlowConfig {
   // Optional source-to-destination table name overrides. Tables not listed here keep their source name at the destination.
+  // The source name must be fully qualified: schema.table for Postgres, database.table for MySQL.
   repeated TableMapping table_mappings = 1;
-  // Schema-qualified table names to replicate (e.g. "public.users"). Controls publication scope.
+  // Fully qualified table names to replicate (for example "public.users" or "source_db.users").
+  // For Postgres this controls publication scope. For MySQL this controls snapshot/CDC table filtering.
   // If empty, all tables will be replicated.
   repeated string tables = 2;
   oneof source_config {
     PostgresSourceConfig postgres_source = 3;
+    MysqlSourceConfig mysql_source = 7;
   }
   // How often to flush buffered CDC records to the destination, in milliseconds.
   // If 0 or unset, falls back to the server-level default.

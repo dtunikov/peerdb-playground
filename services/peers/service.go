@@ -8,6 +8,7 @@ import (
 	"peerdb-playground/gen"
 	"peerdb-playground/pkg/clickhouse"
 	"peerdb-playground/pkg/crypto"
+	"peerdb-playground/pkg/mysql"
 	"peerdb-playground/pkg/postgres"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -42,6 +43,8 @@ func (s *Service) encryptConfig(peer *gen.Peer) ([]byte, error) {
 		configMsg = peer.GetPostgresConfig()
 	case *gen.Peer_ClickhouseConfig:
 		configMsg = peer.GetClickhouseConfig()
+	case *gen.Peer_MysqlConfig:
+		configMsg = peer.GetMysqlConfig()
 	default:
 		return nil, fmt.Errorf("unknown peer config type")
 	}
@@ -70,6 +73,10 @@ func (s *Service) ValidatePeer(ctx context.Context, peer *gen.Peer) error {
 		return errs.BadRequest.WithMessage("config must be specified")
 	}
 
+	if err := validatePeerTypeMatchesConfig(peer); err != nil {
+		return err
+	}
+
 	switch peer.Config.(type) {
 	case *gen.Peer_PostgresConfig:
 		cfg := peer.GetPostgresConfig()
@@ -83,6 +90,13 @@ func (s *Service) ValidatePeer(ctx context.Context, peer *gen.Peer) error {
 		conn, err := clickhouse.ConnectFromProto(ctx, cfg)
 		if err != nil {
 			return errs.BadRequest.WithMessage("failed to connect to clickhouse").WithDetail(err)
+		}
+		defer conn.Close()
+	case *gen.Peer_MysqlConfig:
+		cfg := peer.GetMysqlConfig()
+		conn, err := mysql.ConnectFromProto(ctx, cfg)
+		if err != nil {
+			return errs.BadRequest.WithMessage("failed to connect to mysql").WithDetail(err)
 		}
 		defer conn.Close()
 	default:
@@ -160,9 +174,36 @@ func (s *Service) GetPeer(ctx context.Context, id string) (*gen.Peer, error) {
 			return nil, fmt.Errorf("failed to unmarshal clickhouse config: %w", err)
 		}
 		peer.Config = &gen.Peer_ClickhouseConfig{ClickhouseConfig: &chCfg}
+	case gen.PeerType_MYSQL:
+		var mysqlCfg gen.MysqlConfig
+		err = proto.Unmarshal(decrypted, &mysqlCfg)
+		if err != nil {
+			return nil, fmt.Errorf("failed to unmarshal mysql config: %w", err)
+		}
+		peer.Config = &gen.Peer_MysqlConfig{MysqlConfig: &mysqlCfg}
 	default:
 		return nil, fmt.Errorf("unknown peer type")
 	}
 
 	return &peer, nil
+}
+
+func validatePeerTypeMatchesConfig(peer *gen.Peer) error {
+	var configType gen.PeerType
+	switch peer.Config.(type) {
+	case *gen.Peer_PostgresConfig:
+		configType = gen.PeerType_POSTGRES
+	case *gen.Peer_ClickhouseConfig:
+		configType = gen.PeerType_CLICKHOUSE
+	case *gen.Peer_MysqlConfig:
+		configType = gen.PeerType_MYSQL
+	default:
+		return errs.BadRequest.WithMessage("unknown peer config type")
+	}
+
+	if peer.Type != configType {
+		return errs.BadRequest.WithMessage(fmt.Sprintf("peer type %s does not match config type %s", peer.Type, configType))
+	}
+
+	return nil
 }

@@ -33,6 +33,7 @@ type fakeSourceConnector struct {
 	ackFn             func(ctx context.Context, position string) error
 	isCriticalErrorFn func(err error) bool
 	snapshotTableFn   func(ctx context.Context, table connectors.TableSchema) (<-chan connectors.RecordBatch, error)
+	setupFn           func(ctx context.Context) (string, error)
 }
 
 func (f *fakeSourceConnector) Teardown(ctx context.Context) error {
@@ -43,8 +44,11 @@ func (f *fakeSourceConnector) Close(ctx context.Context) error {
 	return nil
 }
 
-func (f *fakeSourceConnector) Setup(ctx context.Context) error {
-	return nil
+func (f *fakeSourceConnector) Setup(ctx context.Context) (string, error) {
+	if f.setupFn != nil {
+		return f.setupFn(ctx)
+	}
+	return "", nil
 }
 
 func (f *fakeSourceConnector) Read(ctx context.Context, ch chan<- connectors.RecordBatch) error {

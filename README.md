@@ -15,6 +15,7 @@ A Change Data Capture (CDC) tool that replicates data from source databases to d
 | Source     | Destination |
 |------------|-------------|
 | PostgreSQL | ClickHouse  |
+| MySQL 8    | ClickHouse  |
 
 ## Getting Started
 
@@ -69,6 +70,8 @@ grpcurl -plaintext -d '{
   }
 }' localhost:8080 peerdb.PeerdbService/CreateCDCFlow
 ```
+
+For MySQL sources, register a `MYSQL` peer with `mysql_config` and create the flow with `mysql_source`.
 
 ## Architecture
 

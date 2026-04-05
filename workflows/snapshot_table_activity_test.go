@@ -120,7 +120,7 @@ func TestApplyColumnExclusions(t *testing.T) {
 	}
 	mappings := []*gen.TableMapping{
 		{
-			Source:         "users",
+			Source:         "public.users",
 			Destination:    "users",
 			ExcludeColumns: []string{"password", "email"},
 		},

@@ -18,6 +18,7 @@ import (
 	"peerdb-playground/gen/genconnect"
 	"peerdb-playground/middleware"
 	chpkg "peerdb-playground/pkg/clickhouse"
+	mysqlpkg "peerdb-playground/pkg/mysql"
 	pgpkg "peerdb-playground/pkg/postgres"
 	"peerdb-playground/server"
 	"peerdb-playground/services/flows"
@@ -25,6 +26,7 @@ import (
 	"peerdb-playground/workflows"
 
 	"connectrpc.com/connect"
+	sq "github.com/Masterminds/squirrel"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/testcontainers/testcontainers-go"
@@ -44,6 +46,9 @@ const (
 	postgresUser       = "postgres"
 	postgresPassword   = "postgres"
 	postgresDB         = "peerdb"
+	mysqlUser          = "root"
+	mysqlPassword      = "mysql"
+	mysqlDatabase      = "source"
 )
 
 func (s *GRPCE2ESuite) createPostgresPeer(ctx context.Context) string {
@@ -59,6 +64,27 @@ func (s *GRPCE2ESuite) createPostgresPeer(ctx context.Context) string {
 					Password: postgresPassword,
 					Database: postgresDB,
 					SslMode:  "disable",
+				},
+			},
+		},
+	})
+	s.Require().NoError(err)
+
+	return sourcePeer.Id
+}
+
+func (s *GRPCE2ESuite) createMySQLPeer(ctx context.Context) string {
+	sourcePeer, err := s.apiClient.CreatePeer(ctx, &gen.CreatePeerRequest{
+		Peer: &gen.Peer{
+			Name: fmt.Sprintf("mysql-source-%s", rand.Text()),
+			Type: gen.PeerType_MYSQL,
+			Config: &gen.Peer_MysqlConfig{
+				MysqlConfig: &gen.MysqlConfig{
+					Host:     s.mysqlHost,
+					Port:     s.mysqlPort,
+					User:     mysqlUser,
+					Password: mysqlPassword,
+					Database: mysqlDatabase,
 				},
 			},
 		},
@@ -91,31 +117,41 @@ func (s *GRPCE2ESuite) createClickHousePeer(ctx context.Context) string {
 func (s *GRPCE2ESuite) createAndSeedUsersTable(
 	ctx context.Context,
 	db sqlExecContext,
-) sourceTableFixture {
-	tableName := fmt.Sprintf("%s_%s", "users", strings.ToLower(rand.Text()))
-	qualifiedName := fmt.Sprintf("public.%s", tableName)
+	dialect sourceDialect,
+) (tableName, qualifiedName string, seedRows []userRow) {
+	tableName = fmt.Sprintf("users_%s", strings.ToLower(rand.Text()))
+	qualifiedName = fmt.Sprintf("%s.%s", dialect.Schema, tableName)
 
-	// create table if not exists
-	_, err := db.ExecContext(ctx, fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id BIGINT PRIMARY KEY, name TEXT NOT NULL)`, qualifiedName))
+	_, err := db.ExecContext(ctx, fmt.Sprintf(
+		`CREATE TABLE IF NOT EXISTS %s (id BIGINT PRIMARY KEY, name TEXT NOT NULL)`,
+		qualifiedName,
+	))
 	s.Require().NoError(err)
 
-	// seed table
-	_, err = db.ExecContext(ctx, fmt.Sprintf(`
-		INSERT INTO %s (id, name)
-		VALUES (1, 'alice'), (2, 'bob')
-	`, qualifiedName))
+	seedRows = []userRow{
+		{ID: 1, Name: "alice"},
+		{ID: 2, Name: "bob"},
+	}
+
+	insert := sq.StatementBuilder.
+		PlaceholderFormat(dialect.PlaceholderFormat).
+		Insert(qualifiedName).
+		Columns("id", "name")
+	for _, r := range seedRows {
+		insert = insert.Values(r.ID, r.Name)
+	}
+	seedSQL, seedArgs, err := insert.ToSql()
+	s.Require().NoError(err)
+	_, err = db.ExecContext(ctx, seedSQL, seedArgs...)
 	s.Require().NoError(err)
 
 	s.T().Cleanup(func() {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		_, _ = db.ExecContext(cleanupCtx, fmt.Sprintf(`DROP TABLE %s`, qualifiedName))
+		_, _ = db.ExecContext(cleanupCtx, fmt.Sprintf(`DROP TABLE IF EXISTS %s`, qualifiedName))
 	})
 
-	return sourceTableFixture{
-		Name:          tableName,
-		QualifiedName: qualifiedName,
-	}
+	return tableName, qualifiedName, seedRows
 }
 
 func (s *GRPCE2ESuite) startPostgres() {
@@ -159,6 +195,61 @@ func (s *GRPCE2ESuite) startPostgres() {
 	s.pgDB = pgDB
 	s.T().Cleanup(func() {
 		s.Require().NoError(pgDB.Close())
+	})
+}
+
+func (s *GRPCE2ESuite) startMySQL() {
+	mysqlContainer, err := testcontainers.Run(
+		s.ctx,
+		"mysql:8.4",
+		testcontainers.WithExposedPorts("3306/tcp"),
+		testcontainers.WithEnv(map[string]string{
+			"MYSQL_DATABASE":      mysqlDatabase,
+			"MYSQL_ROOT_PASSWORD": mysqlPassword,
+			"MYSQL_ROOT_HOST":     "%",
+		}),
+		testcontainers.WithCmdArgs(
+			"--server-id=1",
+			"--log-bin=mysql-bin",
+			"--binlog-format=ROW",
+			"--binlog-row-image=FULL",
+			"--gtid-mode=ON",
+			"--enforce-gtid-consistency=ON",
+		),
+		testcontainers.WithWaitStrategy(wait.ForListeningPort("3306/tcp").WithStartupTimeout(2*time.Minute)),
+	)
+	s.Require().NoError(err)
+	s.mysqlContainer = mysqlContainer
+	s.T().Cleanup(func() {
+		s.Require().NoError(mysqlContainer.Terminate(context.Background()))
+	})
+
+	host, err := mysqlContainer.Host(s.ctx)
+	s.Require().NoError(err)
+	s.mysqlHost = host
+
+	port, err := mysqlContainer.MappedPort(s.ctx, "3306/tcp")
+	s.Require().NoError(err)
+	s.mysqlPort = uint32(port.Int())
+
+	s.Require().Eventually(func() bool {
+		db, err := mysqlpkg.Connect(s.ctx, mysqlpkg.Config{
+			Host:     s.mysqlHost,
+			Port:     int(s.mysqlPort),
+			User:     mysqlUser,
+			Password: mysqlPassword,
+			Database: mysqlDatabase,
+		})
+		if err != nil {
+			return false
+		}
+		s.mysqlDB = db
+		return true
+	}, 2*time.Minute, time.Second)
+	s.T().Cleanup(func() {
+		if s.mysqlDB != nil {
+			s.Require().NoError(s.mysqlDB.Close())
+		}
 	})
 }
 

@@ -30,7 +30,7 @@ func (a *Activities) SnapshotTableActivity(ctx context.Context, input SnapshotTa
 	}
 
 	logger := slog.With("flowId", input.FlowId, "table", input.Table)
-	srcConn, err := newSourceConnector(ctx, input.FlowId, source, flow.GetConfig(), logger)
+	srcConn, err := newSourceConnector(ctx, input.FlowId, source, flow.GetConfig(), logger, "")
 	if err != nil {
 		return fmt.Errorf("failed to create source connector: %w", err)
 	}
@@ -47,8 +47,12 @@ func (a *Activities) SnapshotTableActivity(ctx context.Context, input SnapshotTa
 }
 
 func applyColumnExclusions(table *gen.TableSchema, mappings []*gen.TableMapping) *gen.TableSchema {
+	qualifiedName := table.GetName()
+	if table.GetSchema() != "" {
+		qualifiedName = table.GetSchema() + "." + table.GetName()
+	}
 	idx := slices.IndexFunc(mappings, func(tm *gen.TableMapping) bool {
-		return tm.Source == table.GetName() && len(tm.ExcludeColumns) > 0
+		return tm.Source == qualifiedName && len(tm.ExcludeColumns) > 0
 	})
 	if idx < 0 {
 		return table

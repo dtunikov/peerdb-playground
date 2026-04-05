@@ -38,7 +38,7 @@ var (
 )
 
 func NewConnector(ctx context.Context, flowId string, connConfig postgres.Config, logger *slog.Logger,
-	tables []string, publicationName string) (*SourceConnector, error) {
+	tables []string, publicationName string, _ string) (*SourceConnector, error) {
 	conn, err := postgres.Connect(ctx, connConfig)
 	if err != nil {
 		return nil, fmt.Errorf("fail to connect to postgres: %w", err)
@@ -74,17 +74,18 @@ func (c *SourceConnector) Ack(ctx context.Context, position string) error {
 
 // Setup for postgres source will create the necessary publication and replication slot if they don't already exist.
 // This is idempotent to allow for activity retries without creating duplicates.
-func (c *SourceConnector) Setup(ctx context.Context) error {
+// Returns the initial LSN from the replication slot for checkpoint consistency across peer types.
+func (c *SourceConnector) Setup(ctx context.Context) (string, error) {
 	if c.publicationName == "" {
 		// create a new publication if it doesn't already exist (idempotent for activity retries)
 		pubName := c.generatePublicationName()
 		exists, err := postgres.PublicationExists(ctx, c.conn, pubName)
 		if err != nil {
-			return fmt.Errorf("failed to check publication existence: %w", err)
+			return "", fmt.Errorf("failed to check publication existence: %w", err)
 		}
 		if !exists {
 			if err := postgres.CreatePublication(ctx, c.conn, pubName, c.tables); err != nil {
-				return fmt.Errorf("failed to create publication: %w", err)
+				return "", fmt.Errorf("failed to create publication: %w", err)
 			}
 			c.logger.Info("created publication for flow", "publication", pubName)
 		} else {
@@ -96,18 +97,25 @@ func (c *SourceConnector) Setup(ctx context.Context) error {
 	slotName := c.slotName()
 	slotExists, err := postgres.ReplicationSlotExists(ctx, c.conn, slotName)
 	if err != nil {
-		return fmt.Errorf("failed to check replication slot existence: %w", err)
-	}
-	if !slotExists {
-		if err := postgres.CreateReplicationSlot(ctx, c.replConn, slotName); err != nil {
-			return fmt.Errorf("failed to create replication slot: %w", err)
-		}
-		c.logger.Info("created replication slot for flow", "slot", slotName)
-	} else {
-		c.logger.Info("replication slot already exists, skipping creation", "slot", slotName)
+		return "", fmt.Errorf("failed to check replication slot existence: %w", err)
 	}
 
-	return nil
+	var initialLSN pglogrepl.LSN
+	if !slotExists {
+		initialLSN, err = postgres.CreateReplicationSlot(ctx, c.replConn, slotName)
+		if err != nil {
+			return "", fmt.Errorf("failed to create replication slot: %w", err)
+		}
+		c.logger.Info("created replication slot for flow", "slot", slotName, "lsn", initialLSN)
+	} else {
+		c.logger.Info("replication slot already exists, skipping creation", "slot", slotName)
+		initialLSN, err = postgres.LoadReplicationSlotLSN(ctx, c.conn, slotName)
+		if err != nil {
+			return "", fmt.Errorf("failed to load replication slot LSN: %w", err)
+		}
+	}
+
+	return initialLSN.String(), nil
 }
 
 func (c *SourceConnector) Teardown(ctx context.Context) error {

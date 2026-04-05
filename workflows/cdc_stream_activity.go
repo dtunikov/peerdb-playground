@@ -15,7 +15,8 @@ import (
 )
 
 type CdcStreamActivityInput struct {
-	FlowId string
+	FlowId                  string
+	InitialSourceCheckpoint string
 }
 
 // cdcStreamConfig holds resolved CDC stream parameters for a single run.
@@ -24,6 +25,7 @@ type cdcStreamConfig struct {
 	maxBatchSize      int
 	heartbeatInterval time.Duration
 	recordHeartbeat   func(ctx context.Context, details ...any)
+	persistCheckpoint func(ctx context.Context, checkpoint string) error
 }
 
 // resolveCdcStreamConfig builds a cdcStreamConfig by applying per-flow overrides
@@ -61,12 +63,6 @@ func (a *Activities) CdcStreamActivity(ctx context.Context, input CdcStreamActiv
 	}
 
 	logger := slog.With("flowId", input.FlowId)
-	srcConn, err := newSourceConnector(ctx, input.FlowId, source, flow.GetConfig(), logger)
-	if err != nil {
-		return fmt.Errorf("failed to create source connector: %w", err)
-	}
-	defer srcConn.Close(ctx)
-
 	destConn, err := newDestinationConnector(ctx, dest, flow.GetConfig(), logger)
 	if err != nil {
 		return fmt.Errorf("failed to create destination connector: %w", err)
@@ -75,6 +71,22 @@ func (a *Activities) CdcStreamActivity(ctx context.Context, input CdcStreamActiv
 
 	streamCfg := resolveCdcStreamConfig(a.cdcCfg, flow.GetConfig())
 	streamCfg.recordHeartbeat = activity.RecordHeartbeat
+	streamCfg.persistCheckpoint = func(ctx context.Context, checkpoint string) error {
+		return a.flowsSvc.SaveSourceCheckpoint(ctx, input.FlowId, checkpoint)
+	}
+
+	checkpoint, err := a.flowsSvc.GetSourceCheckpoint(ctx, input.FlowId)
+	if err != nil {
+		return fmt.Errorf("failed to load source checkpoint: %w", err)
+	}
+	checkpoint = resolveSourceCheckpoint(checkpoint, input.InitialSourceCheckpoint)
+
+	srcConn, err := newSourceConnector(ctx, input.FlowId, source, flow.GetConfig(), logger, checkpoint)
+	if err != nil {
+		return fmt.Errorf("failed to create source connector: %w", err)
+	}
+	defer srcConn.Close(ctx)
+
 	return runCdcStream(ctx, srcConn, destConn, streamCfg, logger)
 }
 
@@ -165,7 +177,7 @@ func (a *cdcBatchAccumulator) add(batch connectors.RecordBatch) {
 }
 
 func (a *cdcBatchAccumulator) empty() bool {
-	return a.recordCount == 0
+	return a.recordCount == 0 && a.highestBatchID == ""
 }
 
 func (a *cdcBatchAccumulator) drain() connectors.RecordBatch {
@@ -207,6 +219,11 @@ func flushCdcBatch(
 		if err := srcConn.Ack(ctx, batch.BatchId); err != nil {
 			return fmt.Errorf("failed to ack source batch %s: %w", batch.BatchId, err)
 		}
+		if cfg.persistCheckpoint != nil {
+			if err := cfg.persistCheckpoint(ctx, batch.BatchId); err != nil {
+				return fmt.Errorf("failed to persist source checkpoint %s: %w", batch.BatchId, err)
+			}
+		}
 	}
 	cfg.recordHeartbeat(ctx, batch.BatchId)
 	return nil
@@ -215,4 +232,11 @@ func flushCdcBatch(
 func isNonRetryableCdcError(err error) bool {
 	var appErr *temporal.ApplicationError
 	return errors.As(err, &appErr) && appErr.NonRetryable()
+}
+
+func resolveSourceCheckpoint(savedCheckpoint, initialCheckpoint string) string {
+	if savedCheckpoint != "" {
+		return savedCheckpoint
+	}
+	return initialCheckpoint
 }

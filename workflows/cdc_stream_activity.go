@@ -105,6 +105,8 @@ func runCdcStream(
 		"heartbeatInterval", cfg.heartbeatInterval,
 	)
 
+	// unbuffered channel, which means that we block the source reader until we wrote the batch to destination and acked it
+	// this provides backpressure to avoid buffering too many batches in memory when the destination is slow
 	readCh := make(chan connectors.RecordBatch)
 	readErrCh := make(chan error, 1)
 	pending := cdcBatchAccumulator{}

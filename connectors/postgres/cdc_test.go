@@ -99,7 +99,7 @@ func TestDecodeTupleColumns(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			values, skip, err := decodeTupleColumns(pgtype.NewMap(), tc.rel, tc.tableSchema, tc.tuple)
+			values, skip, err := decodeTupleColumns(tc.rel, tc.tableSchema, tc.tuple)
 			if tc.wantErr {
 				if err == nil {
 					t.Fatal("expected error, got nil")
@@ -172,7 +172,7 @@ func TestMakeInsertRecordForUpdateTuple(t *testing.T) {
 		},
 	}
 
-	record, skip, err := makeInsertRecord(pgtype.NewMap(), relations, tableSchemas, 1, tuple)
+	record, skip, err := makeInsertRecord(relations, tableSchemas, 1, tuple)
 	if err != nil {
 		t.Fatalf("makeInsertRecord returned error: %v", err)
 	}
@@ -215,7 +215,7 @@ func TestMakeInsertRecordSkipsUnchangedToast(t *testing.T) {
 		},
 	}
 
-	_, skip, err := makeInsertRecord(pgtype.NewMap(), relations, tableSchemas, 1, tuple)
+	_, skip, err := makeInsertRecord(relations, tableSchemas, 1, tuple)
 	if err != nil {
 		t.Fatalf("makeInsertRecord returned error: %v", err)
 	}

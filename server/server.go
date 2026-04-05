@@ -11,19 +11,23 @@ import (
 	"go.temporal.io/sdk/client"
 )
 
+const (
+	CdcFlowPrefix = "cdc-flow-"
+)
+
 type PeerdbServiceServer struct {
-	peers         *peers.Service
-	flows         *flows.Service
-	temporal      client.Client
-	cdcTaskQueue  string
+	peers        *peers.Service
+	flows        *flows.Service
+	temporal     client.Client
+	cdcTaskQueue string
 }
 
 func NewServer(peers *peers.Service, flows *flows.Service, temporal client.Client, cdcTaskQueue string) *PeerdbServiceServer {
 	return &PeerdbServiceServer{
-		peers:         peers,
-		flows:         flows,
-		temporal:      temporal,
-		cdcTaskQueue:  cdcTaskQueue,
+		peers:        peers,
+		flows:        flows,
+		temporal:     temporal,
+		cdcTaskQueue: cdcTaskQueue,
 	}
 }
 
@@ -46,7 +50,7 @@ func (s *PeerdbServiceServer) CreateCDCFlow(ctx context.Context, req *gen.Create
 	}
 
 	_, err = s.temporal.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
-		ID:        fmt.Sprintf("cdc-flow-%s", id),
+		ID:        fmt.Sprintf("%s%s", CdcFlowPrefix, id),
 		TaskQueue: s.cdcTaskQueue,
 	}, workflows.CdcFlowWorkflow, workflows.CdcFlowWorkflowInput{FlowId: id})
 	if err != nil {

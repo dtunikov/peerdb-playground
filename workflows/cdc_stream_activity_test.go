@@ -192,4 +192,3 @@ func TestRunCdcStreamReturnsNonRetryableOnCriticalSourceError(t *testing.T) {
 		t.Fatal("expected critical source failure to be non-retryable")
 	}
 }
-

@@ -20,7 +20,7 @@ connectors/     — Source/destination connector interfaces and implementations
   types/        — QType (column types) and QValue (column values) — source-agnostic type system
   postgres/     — Postgres source connector (publication, slot, snapshot, schema discovery)
   clickhouse/   — ClickHouse destination connector (table creation, batch writes)
-docker-compose.yml — Local dev: pg-source, ch-dest, peerdb-postgres, temporal, temporal-ui
+e2e/            — End-to-end tests with testcontainers
 errs/           — Application error types (maps to Connect RPC codes)
 gen/            — Generated protobuf + Connect RPC code
 middleware/     — HTTP interceptors (request ID, logging, error handling)
@@ -37,6 +37,7 @@ services/
   peers/        — Peer CRUD (create, get, validate connections)
   flows/        — CDC flow CRUD (create, get, validate)
 workflows/      — Temporal workflows and activities
+docker-compose.yml — Local dev: pg-source, ch-dest, peerdb-postgres, temporal, temporal-ui
 ```
 
 ## Key Design Decisions

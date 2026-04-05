@@ -33,6 +33,10 @@ type SourceConnector struct {
 	lastAckedLSN    atomic.Uint64
 }
 
+var (
+	typeMap = pgtype.NewMap()
+)
+
 func NewConnector(ctx context.Context, flowId string, connConfig postgres.Config, logger *slog.Logger,
 	tables []string, publicationName string) (*SourceConnector, error) {
 	conn, err := postgres.Connect(ctx, connConfig)
@@ -121,13 +125,12 @@ func (c *SourceConnector) Read(ctx context.Context, ch chan<- connectors.RecordB
 	}
 
 	tableSchemaByName := indexTableSchemas(tableSchemas)
-	typeMap := pgtype.NewMap()
 	publicationName := c.resolvedPublicationName()
 	slotName := c.slotName()
 
 	backoff := initialReconnectBackoff
 	for {
-		err := c.readOnce(ctx, slotName, publicationName, tableSchemaByName, typeMap, ch)
+		err := c.readOnce(ctx, slotName, publicationName, tableSchemaByName, ch)
 		if err == nil || ctx.Err() != nil {
 			return nil
 		}

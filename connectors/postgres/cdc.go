@@ -62,7 +62,6 @@ func (c *SourceConnector) readOnce(
 	slotName string,
 	publicationName string,
 	tableSchemaByName map[string]connectors.TableSchema,
-	typeMap *pgtype.Map,
 	ch chan<- connectors.RecordBatch,
 ) error {
 	startLSN, err := pg.LoadReplicationSlotLSN(ctx, c.conn, slotName)
@@ -143,7 +142,7 @@ func (c *SourceConnector) readOnce(
 				return criticalReplication(fmt.Errorf("failed to parse xlog data: %w", err))
 			}
 			c.advanceReceivedLSN(xld.WALStart)
-			if err := c.handleLogicalMessage(ctx, typeMap, xld.WALData, relations, tableSchemaByName, &txn, ch); err != nil {
+			if err := c.handleLogicalMessage(ctx, xld.WALData, relations, tableSchemaByName, &txn, ch); err != nil {
 				return err
 			}
 		}
@@ -152,7 +151,6 @@ func (c *SourceConnector) readOnce(
 
 func (c *SourceConnector) handleLogicalMessage(
 	ctx context.Context,
-	typeMap *pgtype.Map,
 	walData []byte,
 	relations map[uint32]*pglogrepl.RelationMessage,
 	tableSchemaByName map[string]connectors.TableSchema,
@@ -170,7 +168,7 @@ func (c *SourceConnector) handleLogicalMessage(
 	case *pglogrepl.BeginMessage:
 		txn.reset()
 	case *pglogrepl.InsertMessage:
-		record, skip, err := makeInsertRecord(typeMap, relations, tableSchemaByName, msg.RelationID, msg.Tuple)
+		record, skip, err := makeInsertRecord(relations, tableSchemaByName, msg.RelationID, msg.Tuple)
 		if err != nil {
 			return criticalReplication(err)
 		}
@@ -181,7 +179,7 @@ func (c *SourceConnector) handleLogicalMessage(
 		if msg.NewTuple == nil {
 			return criticalReplication(fmt.Errorf("update message for relation %d is missing new tuple", msg.RelationID))
 		}
-		record, skip, err := makeInsertRecord(typeMap, relations, tableSchemaByName, msg.RelationID, msg.NewTuple)
+		record, skip, err := makeInsertRecord(relations, tableSchemaByName, msg.RelationID, msg.NewTuple)
 		if err != nil {
 			return criticalReplication(err)
 		}
@@ -322,7 +320,6 @@ func relationQualifiedName(rel *pglogrepl.RelationMessage) string {
 }
 
 func makeInsertRecord(
-	typeMap *pgtype.Map,
 	relations map[uint32]*pglogrepl.RelationMessage,
 	tableSchemaByName map[string]connectors.TableSchema,
 	relationID uint32,
@@ -338,7 +335,7 @@ func makeInsertRecord(
 		return connectors.InsertRecord{}, false, err
 	}
 
-	values, skip, err := decodeTupleColumns(typeMap, rel, tableSchema, tuple)
+	values, skip, err := decodeTupleColumns(rel, tableSchema, tuple)
 	if err != nil {
 		return connectors.InsertRecord{}, false, err
 	}
@@ -355,7 +352,6 @@ func makeInsertRecord(
 }
 
 func decodeTupleColumns(
-	typeMap *pgtype.Map,
 	rel *pglogrepl.RelationMessage,
 	tableSchema connectors.TableSchema,
 	tuple *pglogrepl.TupleData,
@@ -380,7 +376,7 @@ func decodeTupleColumns(
 			return nil, false, fmt.Errorf("missing column schema for %s.%s", relationQualifiedName(rel), relationColumn.Name)
 		}
 
-		value, skip, err := decodeTupleColumn(typeMap, columnSchema, relationColumn, col)
+		value, skip, err := decodeTupleColumn(columnSchema, relationColumn, col)
 		if err != nil {
 			return nil, false, err
 		}
@@ -394,7 +390,6 @@ func decodeTupleColumns(
 }
 
 func decodeTupleColumn(
-	typeMap *pgtype.Map,
 	columnSchema connectors.ColumnSchema,
 	relationColumn *pglogrepl.RelationMessageColumn,
 	column *pglogrepl.TupleDataColumn,
@@ -403,7 +398,7 @@ func decodeTupleColumn(
 	case pglogrepl.TupleDataTypeNull:
 		return convertValue(columnSchema.Name, columnSchema.Type, nil), false, nil
 	case pglogrepl.TupleDataTypeText:
-		value, err := decodeTextColumnData(typeMap, column.Data, relationColumn.DataType)
+		value, err := decodeTextColumnData(column.Data, relationColumn.DataType)
 		if err != nil {
 			return connectors.ColumnValue{}, false, fmt.Errorf("failed to decode %s: %w", columnSchema.Name, err)
 		}
@@ -417,7 +412,7 @@ func decodeTupleColumn(
 	}
 }
 
-func decodeTextColumnData(typeMap *pgtype.Map, data []byte, dataType uint32) (any, error) {
+func decodeTextColumnData(data []byte, dataType uint32) (any, error) {
 	if data == nil {
 		return nil, nil
 	}

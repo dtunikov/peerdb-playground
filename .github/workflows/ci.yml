@@ -108,7 +108,6 @@ jobs:
 
   build-images:
     name: Build & Push ${{ matrix.target }}
-    needs: [lint, test]
     runs-on: ubuntu-latest
     strategy:
       matrix:

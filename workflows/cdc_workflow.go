@@ -82,6 +82,9 @@ func CdcFlowWorkflow(ctx workflow.Context, input CdcFlowWorkflowInput) error {
 		return fmt.Errorf("failed to execute snapshot workflow: %w", err)
 	}
 
+	// InitialSourceCheckpoint was captured during Setup, before the snapshot started.
+	// CDC must start from this checkpoint to replay writes that occurred during the snapshot,
+	// ensuring no data is lost even though CDC runs after the snapshot completes.
 	err = workflow.ExecuteActivity(cdcCtx, activities.CdcStreamActivity, CdcStreamActivityInput{
 		FlowId:                  input.FlowId,
 		InitialSourceCheckpoint: setupOutput.InitialSourceCheckpoint,

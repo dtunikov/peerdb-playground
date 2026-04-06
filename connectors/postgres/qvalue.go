@@ -1,6 +1,7 @@
 package postgres
 
 import (
+	"encoding/json"
 	"fmt"
 	"peerdb-playground/connectors"
 	"peerdb-playground/connectors/types"
@@ -48,7 +49,7 @@ func convertValue(name string, qtype types.QType, value any) connectors.ColumnVa
 			qval = types.QValueUUID{Val: fmt.Sprintf("%v", value)}
 		}
 	case types.QTypeJSON:
-		qval = types.QValueJSON{Val: fmt.Sprintf("%v", value)}
+		qval = types.QValueJSON{Val: postgresJSONString(value)}
 	case types.QTypeNumeric:
 		if n, ok := value.(pgtype.Numeric); ok {
 			var s string
@@ -63,4 +64,21 @@ func convertValue(name string, qtype types.QType, value any) connectors.ColumnVa
 	}
 
 	return connectors.ColumnValue{Name: name, Value: qval}
+}
+
+func postgresJSONString(value any) string {
+	switch v := value.(type) {
+	case string:
+		return v
+	case []byte:
+		return string(v)
+	case json.RawMessage:
+		return string(v)
+	default:
+		b, err := json.Marshal(v)
+		if err == nil {
+			return string(b)
+		}
+		return fmt.Sprintf("%v", value)
+	}
 }

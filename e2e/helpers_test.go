@@ -29,6 +29,7 @@ import (
 	sq "github.com/Masterminds/squirrel"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
+	"github.com/shopspring/decimal"
 	"github.com/testcontainers/testcontainers-go"
 	tcpg "github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -123,22 +124,44 @@ func (s *GRPCE2ESuite) createAndSeedUsersTable(
 	qualifiedName = fmt.Sprintf("%s.%s", dialect.Schema, tableName)
 
 	_, err := db.ExecContext(ctx, fmt.Sprintf(
-		`CREATE TABLE IF NOT EXISTS %s (id BIGINT PRIMARY KEY, name TEXT NOT NULL)`,
+		`CREATE TABLE IF NOT EXISTS %s (%s)`,
 		qualifiedName,
+		dialect.DDL,
 	))
 	s.Require().NoError(err)
 
 	seedRows = []userRow{
-		{ID: 1, Name: "alice"},
-		{ID: 2, Name: "bob"},
+		{
+			ID: 1, Name: "alice", IsActive: true, Age: 30, Rating: 100,
+			Price: 1.5, Score: 99.99,
+			Birthday:  time.Date(1994, 1, 1, 0, 0, 0, 0, time.UTC),
+			CreatedAt: time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC),
+			Balance:   "1234.56",
+			Bio:       `{"hobby":"chess"}`,
+			Avatar:    []byte{0xDE, 0xAD},
+		},
+		{
+			ID: 2, Name: "bob", IsActive: false, Age: 25, Rating: 200,
+			Price: 2.5, Score: 50.01,
+			Birthday:  time.Date(1999, 6, 15, 0, 0, 0, 0, time.UTC),
+			CreatedAt: time.Date(2025, 3, 15, 8, 30, 0, 0, time.UTC),
+			Balance:   "0.01",
+			Bio:       `{"hobby":"go"}`,
+			Avatar:    []byte{0xBE, 0xEF},
+		},
 	}
 
+	cols := []string{"id", "name", "is_active", "age", "rating", "price", "score", "birthday", "created_at", "balance", "bio", "avatar"}
 	insert := sq.StatementBuilder.
 		PlaceholderFormat(dialect.PlaceholderFormat).
 		Insert(qualifiedName).
-		Columns("id", "name")
+		Columns(cols...)
 	for _, r := range seedRows {
-		insert = insert.Values(r.ID, r.Name)
+		insert = insert.Values(
+			r.ID, r.Name, r.IsActive, r.Age, r.Rating,
+			r.Price, r.Score, r.Birthday, r.CreatedAt,
+			r.Balance, r.Bio, r.Avatar,
+		)
 	}
 	seedSQL, seedArgs, err := insert.ToSql()
 	s.Require().NoError(err)
@@ -382,7 +405,22 @@ func (s *GRPCE2ESuite) startWorkerAndAPI() {
 }
 
 func (s *GRPCE2ESuite) loadUsersTableFromClickhouse(ctx context.Context, tableName string) ([]userRow, error) {
-	rows, err := s.chConn.Query(ctx, fmt.Sprintf(`SELECT id, name FROM "%s" FINAL ORDER BY id`, tableName))
+	conn, err := chpkg.Connect(ctx, chpkg.Config{
+		Host:     s.clickhouseHost,
+		Port:     int(s.clickhousePort),
+		User:     clickhouseUser,
+		Password: clickhousePassword,
+		Database: clickhouseDatabase,
+	})
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+
+	rows, err := conn.Query(ctx, fmt.Sprintf(
+		`SELECT id, name, is_active, age, rating, price, score, birthday, created_at, balance, bio, avatar FROM "%s" FINAL ORDER BY id`,
+		tableName,
+	))
 	if err != nil {
 		return nil, err
 	}
@@ -390,10 +428,20 @@ func (s *GRPCE2ESuite) loadUsersTableFromClickhouse(ctx context.Context, tableNa
 
 	var out []userRow
 	for rows.Next() {
-		var row userRow
-		if err := rows.Scan(&row.ID, &row.Name); err != nil {
+		var (
+			row     userRow
+			balance decimal.Decimal
+			avatar  []byte
+		)
+		if err := rows.Scan(
+			&row.ID, &row.Name, &row.IsActive, &row.Age, &row.Rating,
+			&row.Price, &row.Score, &row.Birthday, &row.CreatedAt,
+			&balance, &row.Bio, &avatar,
+		); err != nil {
 			return nil, err
 		}
+		row.Balance = balance.StringFixed(2)
+		row.Avatar = append([]byte(nil), avatar...)
 		out = append(out, row)
 	}
 	if err := rows.Err(); err != nil {

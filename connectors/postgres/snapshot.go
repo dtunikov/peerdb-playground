@@ -22,6 +22,7 @@ func (c *SourceConnector) SnapshotTable(ctx context.Context, table connectors.Ta
 		}
 
 		tableName := fmt.Sprintf(`"%s"."%s"`, table.Table.Schema, table.Table.Name)
+		// it's ok to query without pagination, because pgx client will use postgres wire protocol to stream results and won't load the entire result set into memory
 		query := fmt.Sprintf("SELECT %s from %s", strings.Join(colsTransformed, ","), tableName)
 
 		batch := []connectors.Record{}

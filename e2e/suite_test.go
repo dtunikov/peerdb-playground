@@ -1,13 +1,16 @@
 package e2e
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"database/sql"
-	"io"
+	"encoding/json"
 	"log/slog"
+	"math"
 	"net/http/httptest"
-	"slices"
+	"os"
+	"reflect"
 	"testing"
 	"time"
 
@@ -28,8 +31,18 @@ import (
 )
 
 type userRow struct {
-	ID   int64
-	Name string
+	ID        int64
+	Name      string
+	IsActive  bool
+	Age       int16
+	Rating    int32
+	Price     float32
+	Score     float64
+	Birthday  time.Time
+	CreatedAt time.Time
+	Balance   string
+	Bio       string
+	Avatar    []byte
 }
 
 type sqlExecContext interface {
@@ -39,18 +52,85 @@ type sqlExecContext interface {
 type sourceDialect struct {
 	Schema            string
 	PlaceholderFormat sq.PlaceholderFormat
+	// DDL is the CREATE TABLE column definitions (excluding the primary key column "id BIGINT PRIMARY KEY").
+	DDL string
 }
 
 var postgresDialect = sourceDialect{
 	Schema:            "public",
 	PlaceholderFormat: sq.Dollar,
+	DDL: `id BIGINT PRIMARY KEY,
+		name TEXT NOT NULL,
+		is_active BOOLEAN NOT NULL,
+		age SMALLINT NOT NULL,
+		rating INTEGER NOT NULL,
+		price REAL NOT NULL,
+		score DOUBLE PRECISION NOT NULL,
+		birthday DATE NOT NULL,
+		created_at TIMESTAMP NOT NULL,
+		balance NUMERIC(10,2) NOT NULL,
+		bio JSONB NOT NULL,
+		avatar BYTEA NOT NULL`,
 }
 
 func mysqlDialect(database string) sourceDialect {
 	return sourceDialect{
 		Schema:            database,
 		PlaceholderFormat: sq.Question,
+		DDL: `id BIGINT PRIMARY KEY,
+			name TEXT NOT NULL,
+			is_active TINYINT(1) NOT NULL,
+			age SMALLINT NOT NULL,
+			rating INT NOT NULL,
+			price FLOAT NOT NULL,
+			score DOUBLE NOT NULL,
+			birthday DATE NOT NULL,
+			created_at DATETIME NOT NULL,
+			balance DECIMAL(10,2) NOT NULL,
+			bio JSON NOT NULL,
+			avatar BLOB NOT NULL`,
 	}
+}
+
+func userRowsEqual(a, b []userRow) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].ID != b[i].ID ||
+			a[i].Name != b[i].Name ||
+			a[i].IsActive != b[i].IsActive ||
+			a[i].Age != b[i].Age ||
+			a[i].Rating != b[i].Rating ||
+			math.Float32bits(a[i].Price) != math.Float32bits(b[i].Price) ||
+			math.Float64bits(a[i].Score) != math.Float64bits(b[i].Score) ||
+			!a[i].Birthday.Equal(b[i].Birthday) ||
+			!a[i].CreatedAt.Truncate(time.Second).Equal(b[i].CreatedAt.Truncate(time.Second)) ||
+			a[i].Balance != b[i].Balance ||
+			!jsonStringsEqual(a[i].Bio, b[i].Bio) ||
+			!bytes.Equal(a[i].Avatar, b[i].Avatar) {
+			return false
+		}
+	}
+	return true
+}
+
+func jsonStringsEqual(a, b string) bool {
+	if a == b {
+		return true
+	}
+
+	var av any
+	if err := json.Unmarshal([]byte(a), &av); err != nil {
+		return false
+	}
+
+	var bv any
+	if err := json.Unmarshal([]byte(b), &bv); err != nil {
+		return false
+	}
+
+	return reflect.DeepEqual(av, bv)
 }
 
 type GRPCE2ESuite struct {
@@ -58,9 +138,9 @@ type GRPCE2ESuite struct {
 
 	ctx context.Context
 
-	pgContainer *tcpg.PostgresContainer
+	pgContainer    *tcpg.PostgresContainer
 	mysqlContainer testcontainers.Container
-	chContainer testcontainers.Container
+	chContainer    testcontainers.Container
 
 	pgPool   *pgxpool.Pool
 	pgDB     *sql.DB
@@ -90,7 +170,7 @@ func (s *GRPCE2ESuite) SetupSuite() {
 
 	s.ctx = context.Background()
 	s.projectRootPath = projectRoot()
-	slog.SetDefault(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, nil)))
 
 	s.startPostgres()
 	s.runMigrations()
@@ -149,7 +229,7 @@ func (s *GRPCE2ESuite) testCdcFlow(
 			if snapshotErr != nil {
 				return false
 			}
-			return slices.Equal(seedRows, snapshotRows)
+			return userRowsEqual(seedRows, snapshotRows)
 		},
 		45*time.Second,
 		1*time.Second,
@@ -159,12 +239,30 @@ func (s *GRPCE2ESuite) testCdcFlow(
 		snapshotErr,
 	)
 
-	cdcRow := userRow{ID: 3, Name: "carol"}
+	cdcRow := userRow{
+		ID:        3,
+		Name:      "carol",
+		IsActive:  false,
+		Age:       28,
+		Rating:    300,
+		Price:     3.14,
+		Score:     2.718281828,
+		Birthday:  time.Date(1998, 3, 15, 0, 0, 0, 0, time.UTC),
+		CreatedAt: time.Date(2025, 6, 1, 12, 0, 0, 0, time.UTC),
+		Balance:   "999.99",
+		Bio:       `{"role":"admin"}`,
+		Avatar:    []byte{0xCA, 0xFE},
+	}
+	cols := []string{"id", "name", "is_active", "age", "rating", "price", "score", "birthday", "created_at", "balance", "bio", "avatar"}
 	insertSQL, insertArgs, err := sq.StatementBuilder.
 		PlaceholderFormat(dialect.PlaceholderFormat).
 		Insert(qualifiedName).
-		Columns("id", "name").
-		Values(cdcRow.ID, cdcRow.Name).
+		Columns(cols...).
+		Values(
+			cdcRow.ID, cdcRow.Name, cdcRow.IsActive, cdcRow.Age, cdcRow.Rating,
+			cdcRow.Price, cdcRow.Score, cdcRow.Birthday, cdcRow.CreatedAt,
+			cdcRow.Balance, cdcRow.Bio, cdcRow.Avatar,
+		).
 		ToSql()
 	s.Require().NoError(err)
 	_, err = sourceConn.ExecContext(ctx, insertSQL, insertArgs...)
@@ -179,7 +277,7 @@ func (s *GRPCE2ESuite) testCdcFlow(
 			if cdcErr != nil {
 				return false
 			}
-			return slices.Equal(expectedRows, cdcRows)
+			return userRowsEqual(expectedRows, cdcRows)
 		},
 		45*time.Second,
 		1*time.Second,

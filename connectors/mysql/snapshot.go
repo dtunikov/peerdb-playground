@@ -17,6 +17,8 @@ func (c *SourceConnector) SnapshotTable(ctx context.Context, table connectors.Ta
 			cols[i] = mysqlQuoteIdentifier(col.Name)
 		}
 
+		// TODO: we should consider paginating this query for large tables, because mysql client doesn't support streaming results and will load the entire result set into memory, which can cause OOM for large tables.
+		// We can paginate by primary key if it exists, otherwise we can use OFFSET, although OFFSET can be inefficient for large offsets.
 		query := fmt.Sprintf(
 			"SELECT %s FROM %s",
 			strings.Join(cols, ", "),

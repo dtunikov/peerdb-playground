@@ -43,7 +43,7 @@ func ValidateConfig(yamlData []byte) error {
 	}
 
 	schemaID := "schema.json"
-	c.AddResource(schemaID, schema)
+	c.AddResource(schemaID, schema) //nolint:errcheck // error will surface from Compile
 
 	sch, err := c.Compile(schemaID)
 	if err != nil {

@@ -84,21 +84,21 @@ func (s *Service) ValidatePeer(ctx context.Context, peer *gen.Peer) error {
 		if err != nil {
 			return errs.BadRequest.WithMessage("failed to connect to postgres").WithDetail(err)
 		}
-		defer conn.Close(ctx)
+		defer conn.Close(ctx) //nolint:errcheck
 	case *gen.Peer_ClickhouseConfig:
 		cfg := peer.GetClickhouseConfig()
 		conn, err := clickhouse.ConnectFromProto(ctx, cfg)
 		if err != nil {
 			return errs.BadRequest.WithMessage("failed to connect to clickhouse").WithDetail(err)
 		}
-		defer conn.Close()
+		defer conn.Close() //nolint:errcheck
 	case *gen.Peer_MysqlConfig:
 		cfg := peer.GetMysqlConfig()
 		conn, err := mysql.ConnectFromProto(ctx, cfg)
 		if err != nil {
 			return errs.BadRequest.WithMessage("failed to connect to mysql").WithDetail(err)
 		}
-		defer conn.Close()
+		defer conn.Close() //nolint:errcheck
 	default:
 		return errs.BadRequest.WithMessage("unknown peer config type")
 	}

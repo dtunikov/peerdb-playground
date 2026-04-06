@@ -89,9 +89,8 @@ func (c *DestinationConnector) Setup(ctx context.Context, tables []connectors.Ta
 }
 
 func (c *DestinationConnector) Teardown(ctx context.Context) error {
-	c.Close(ctx)
 	// TODO: remove tables to clean up resources in clickhouse.
-	return nil
+	return c.Close(ctx)
 }
 
 func (c *DestinationConnector) Close(ctx context.Context) error {

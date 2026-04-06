@@ -30,7 +30,7 @@ func (c *SourceConnector) SnapshotTable(ctx context.Context, table connectors.Ta
 			c.logger.Error("failed to execute mysql snapshot query", "query", query, "error", err)
 			return
 		}
-		defer rows.Close()
+		defer rows.Close() //nolint:errcheck
 
 		rawValues := make([]any, len(table.Columns))
 		scanArgs := make([]any, len(table.Columns))

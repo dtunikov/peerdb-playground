@@ -44,7 +44,7 @@ func Connect(ctx context.Context, cfg Config) (*sql.DB, error) {
 	}
 
 	if err := db.PingContext(ctx); err != nil {
-		db.Close()
+		db.Close() //nolint:errcheck
 		return nil, fmt.Errorf("failed to ping mysql: %w", err)
 	}
 

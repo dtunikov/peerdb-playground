@@ -21,7 +21,7 @@ import (
 	chpkg "peerdb-playground/pkg/clickhouse"
 	"peerdb-playground/server"
 
-	chdriver "github.com/ClickHouse/clickhouse-go/v2/lib/driver"
+	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	sq "github.com/Masterminds/squirrel"
 )
 
@@ -408,7 +408,7 @@ func createFlow(
 	return resp.Id, server.CdcFlowPrefix + resp.Id, nil
 }
 
-func waitForDestinationTable(ctx context.Context, conn chpkgConn, tableName string) error {
+func waitForDestinationTable(ctx context.Context, conn driver.Conn, tableName string) error {
 	deadline := time.Now().Add(45 * time.Second)
 	for time.Now().Before(deadline) {
 		exists, err := clickhouseTableExists(ctx, conn, tableName)
@@ -424,12 +424,7 @@ func waitForDestinationTable(ctx context.Context, conn chpkgConn, tableName stri
 	return fmt.Errorf("destination table %s was not created in time", tableName)
 }
 
-type chpkgConn interface {
-	Query(ctx context.Context, query string, args ...any) (chdriver.Rows, error)
-	Exec(ctx context.Context, query string, args ...any) error
-}
-
-func clickhouseTableExists(ctx context.Context, conn chpkgConn, tableName string) (bool, error) {
+func clickhouseTableExists(ctx context.Context, conn driver.Conn, tableName string) (bool, error) {
 	rows, err := conn.Query(ctx, fmt.Sprintf(`EXISTS TABLE "%s"`, tableName))
 	if err != nil {
 		return false, err
@@ -469,7 +464,7 @@ func insertWarmupRow(ctx context.Context, spec sourceSpec, qualifiedName string,
 	return nil
 }
 
-func waitForWarmup(ctx context.Context, conn chpkgConn, tableName string, warmupSeq int64) error {
+func waitForWarmup(ctx context.Context, conn driver.Conn, tableName string, warmupSeq int64) error {
 	deadline := time.Now().Add(45 * time.Second)
 	for time.Now().Before(deadline) {
 		maxSeq, err := rawMaxSeq(ctx, conn, tableName)
@@ -701,7 +696,7 @@ func (s *writerState) pickRecentID(i int) int64 {
 
 func pollDestination(
 	ctx context.Context,
-	conn chpkgConn,
+	conn driver.Conn,
 	tableName string,
 	interval time.Duration,
 	maxInsertedSeq *atomic.Int64,
@@ -739,7 +734,7 @@ func pollDestination(
 	}
 }
 
-func waitForDrain(ctx context.Context, conn chpkgConn, tableName string, maxSeq int64, mon *monitor, pollInterval time.Duration) error {
+func waitForDrain(ctx context.Context, conn driver.Conn, tableName string, maxSeq int64, mon *monitor, pollInterval time.Duration) error {
 	_ = mon
 	deadline := time.Now().Add(recoveryTimeout)
 	for time.Now().Before(deadline) {
@@ -756,7 +751,7 @@ func waitForDrain(ctx context.Context, conn chpkgConn, tableName string, maxSeq 
 	return fmt.Errorf("destination did not drain within %s", recoveryTimeout)
 }
 
-func loadSnapshot(ctx context.Context, conn chpkgConn, tableName string, mon *monitor) (Sample, error) {
+func loadSnapshot(ctx context.Context, conn driver.Conn, tableName string, mon *monitor) (Sample, error) {
 	snap := Sample{At: time.Now().UTC()}
 	maxSeq, err := rawMaxSeq(ctx, conn, tableName)
 	if err != nil {
@@ -770,7 +765,7 @@ func loadSnapshot(ctx context.Context, conn chpkgConn, tableName string, mon *mo
 	return snap, nil
 }
 
-func finalValidation(ctx context.Context, conn chpkgConn, tableName string) (FinalValidation, error) {
+func finalValidation(ctx context.Context, conn driver.Conn, tableName string) (FinalValidation, error) {
 	rows, err := conn.Query(ctx, fmt.Sprintf(`SELECT count(), ifNull(max(seq), toInt64(0)) FROM "%s" FINAL`, tableName))
 	if err != nil {
 		return FinalValidation{}, err
@@ -788,7 +783,7 @@ func finalValidation(ctx context.Context, conn chpkgConn, tableName string) (Fin
 	return out, rows.Err()
 }
 
-func rawMaxSeq(ctx context.Context, conn chpkgConn, tableName string) (int64, error) {
+func rawMaxSeq(ctx context.Context, conn driver.Conn, tableName string) (int64, error) {
 	rows, err := conn.Query(ctx, fmt.Sprintf(`SELECT ifNull(max(seq), toInt64(0)) FROM "%s"`, tableName))
 	if err != nil {
 		return 0, err
@@ -806,7 +801,7 @@ func rawMaxSeq(ctx context.Context, conn chpkgConn, tableName string) (int64, er
 	return maxSeq, rows.Err()
 }
 
-func fillLatencyStats(ctx context.Context, conn chpkgConn, tableName string, maxSeq int64, snap *Sample, mon *monitor) error {
+func fillLatencyStats(ctx context.Context, conn driver.Conn, tableName string, maxSeq int64, snap *Sample, mon *monitor) error {
 	fromSeq := mon.lastSeenLatencySeq()
 	if maxSeq > fromSeq {
 		rows, err := conn.Query(ctx, fmt.Sprintf(`
@@ -849,7 +844,7 @@ ORDER BY seq`, tableName), fromSeq, maxSeq)
 	return nil
 }
 
-func dropClickHouseTable(ctx context.Context, conn chpkgConn, tableName string) error {
+func dropClickHouseTable(ctx context.Context, conn driver.Conn, tableName string) error {
 	return conn.Exec(ctx, fmt.Sprintf(`DROP TABLE IF EXISTS "%s"`, tableName))
 }
 

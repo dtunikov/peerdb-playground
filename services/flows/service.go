@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	cdcFlowTable = "cdc_flows"
+	cdcFlowTable          = "cdc_flows"
 	sourceCheckpointTable = "cdc_flow_source_checkpoints"
 )
 

@@ -16,6 +16,7 @@ import (
 	"peerdb-playground/config"
 	"peerdb-playground/gen"
 	"peerdb-playground/internal/localenv"
+	"peerdb-playground/internal/sqlutil"
 	"peerdb-playground/server"
 
 	sq "github.com/Masterminds/squirrel"
@@ -36,10 +37,6 @@ type userRow struct {
 	Balance   string
 	Bio       string
 	Avatar    []byte
-}
-
-type sqlExecContext interface {
-	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 }
 
 type sourceDialect struct {
@@ -180,7 +177,7 @@ func (s *GRPCE2ESuite) TearDownTest() {
 func (s *GRPCE2ESuite) testCdcFlow(
 	ctx context.Context,
 	sourcePeerId string,
-	sourceConn sqlExecContext,
+	sourceConn sqlutil.ExecContexter,
 	dialect sourceDialect,
 	cdcFlowSourceConfig gen.CdcFlowConfigSourceConfig,
 ) {

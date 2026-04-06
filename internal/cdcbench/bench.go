@@ -17,6 +17,7 @@ import (
 
 	"peerdb-playground/gen"
 	"peerdb-playground/internal/localenv"
+	"peerdb-playground/internal/sqlutil"
 	chpkg "peerdb-playground/pkg/clickhouse"
 	"peerdb-playground/server"
 
@@ -428,10 +429,6 @@ type chpkgConn interface {
 	Exec(ctx context.Context, query string, args ...any) error
 }
 
-type sqlExecContext interface {
-	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
-}
-
 func clickhouseTableExists(ctx context.Context, conn chpkgConn, tableName string) (bool, error) {
 	rows, err := conn.Query(ctx, fmt.Sprintf(`EXISTS TABLE "%s"`, tableName))
 	if err != nil {
@@ -650,7 +647,7 @@ func insertBatch(ctx context.Context, db *sql.DB, dialect sourceDialect, qualifi
 	return tx.Commit()
 }
 
-func insertBatchTx(ctx context.Context, exec sqlExecContext, dialect sourceDialect, qualifiedName string, rows []benchRow) error {
+func insertBatchTx(ctx context.Context, exec sqlutil.ExecContexter, dialect sourceDialect, qualifiedName string, rows []benchRow) error {
 	if len(rows) == 0 {
 		return nil
 	}
@@ -669,7 +666,7 @@ func insertBatchTx(ctx context.Context, exec sqlExecContext, dialect sourceDiale
 	return err
 }
 
-func updateRowTx(ctx context.Context, exec sqlExecContext, dialect sourceDialect, qualifiedName string, id int64) error {
+func updateRowTx(ctx context.Context, exec sqlutil.ExecContexter, dialect sourceDialect, qualifiedName string, id int64) error {
 	query, args, err := sq.StatementBuilder.
 		PlaceholderFormat(dialect.placeholderFormat).
 		Update(qualifiedName).

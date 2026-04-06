@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"peerdb-playground/gen"
+	"peerdb-playground/internal/sqlutil"
 	chpkg "peerdb-playground/pkg/clickhouse"
 
 	sq "github.com/Masterminds/squirrel"
@@ -93,7 +94,7 @@ func (s *GRPCE2ESuite) createClickHousePeer(ctx context.Context) string {
 
 func (s *GRPCE2ESuite) createAndSeedUsersTable(
 	ctx context.Context,
-	db sqlExecContext,
+	db sqlutil.ExecContexter,
 	dialect sourceDialect,
 ) (tableName, qualifiedName string, seedRows []userRow) {
 	tableName = fmt.Sprintf("users_%s", strings.ToLower(rand.Text()))

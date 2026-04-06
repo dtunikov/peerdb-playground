@@ -20,14 +20,8 @@ A Change Data Capture (CDC) tool that replicates data from source databases to d
 ## Getting Started
 
 ```bash
-# Start infrastructure
+# Start all components (api and worker will be built from source)
 docker compose up -d
-
-# Start the API server
-go run ./cmd/api/
-
-# Start the Temporal worker
-go run ./cmd/worker/
 ```
 
 ### Create a CDC flow

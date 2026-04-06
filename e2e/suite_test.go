@@ -8,26 +8,19 @@ import (
 	"encoding/json"
 	"log/slog"
 	"math"
-	"net/http/httptest"
 	"os"
 	"reflect"
 	"testing"
 	"time"
 
+	"peerdb-playground/config"
 	"peerdb-playground/gen"
-	"peerdb-playground/gen/genconnect"
+	"peerdb-playground/internal/localenv"
 	"peerdb-playground/server"
 
 	sq "github.com/Masterminds/squirrel"
-
-	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/suite"
 	"github.com/testcontainers/testcontainers-go"
-	tcpg "github.com/testcontainers/testcontainers-go/modules/postgres"
-	"go.temporal.io/sdk/client"
-	"go.temporal.io/sdk/testsuite"
-	"go.temporal.io/sdk/worker"
 )
 
 type userRow struct {
@@ -138,28 +131,10 @@ type GRPCE2ESuite struct {
 
 	ctx context.Context
 
-	pgContainer    *tcpg.PostgresContainer
-	mysqlContainer testcontainers.Container
-	chContainer    testcontainers.Container
-
-	pgPool   *pgxpool.Pool
-	pgDB     *sql.DB
-	mysqlDB  *sql.DB
-	chConn   driver.Conn
-	worker   worker.Worker
-	api      *httptest.Server
-	temporal *testsuite.DevServer
-
-	apiClient       genconnect.PeerdbServiceClient
-	temporalClient  client.Client
-	postgresHost    string
-	postgresPort    uint32
-	mysqlHost       string
-	mysqlPort       uint32
-	clickhouseHost  string
-	clickhousePort  uint32
-	lastWorkflowID  string
-	projectRootPath string
+	env            *localenv.Environment
+	pgDB           *sql.DB
+	mysqlDB        *sql.DB
+	lastWorkflowID string
 }
 
 func (s *GRPCE2ESuite) SetupSuite() {
@@ -169,26 +144,36 @@ func (s *GRPCE2ESuite) SetupSuite() {
 	testcontainers.SkipIfProviderIsNotHealthy(s.T())
 
 	s.ctx = context.Background()
-	s.projectRootPath = projectRoot()
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, nil)))
 
-	s.startPostgres()
-	s.runMigrations()
-	s.startMySQL()
-	s.startClickHouse()
-	s.startTemporal()
-	s.startWorkerAndAPI()
+	env, err := localenv.Start(s.ctx, localenv.Options{
+		TaskQueue:     taskQueue,
+		EncryptionKey: encryptionKey,
+		CdcConfig: config.CdcConfig{
+			FlushIntervalMs:     100,
+			MaxBatchSize:        100,
+			HeartbeatIntervalMs: 250,
+		},
+	})
+	s.Require().NoError(err)
+	s.env = env
+	s.pgDB = env.PostgresSQL
+	s.mysqlDB = env.MySQLDB
+
+	s.T().Cleanup(func() {
+		s.Require().NoError(env.Close(context.Background()))
+	})
 }
 
 func (s *GRPCE2ESuite) TearDownTest() {
-	if s.lastWorkflowID == "" || s.temporalClient == nil {
+	if s.lastWorkflowID == "" || s.env == nil || s.env.TemporalClient == nil {
 		return
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	_ = s.temporalClient.TerminateWorkflow(ctx, s.lastWorkflowID, "", "e2e cleanup")
+	_ = s.env.TemporalClient.TerminateWorkflow(ctx, s.lastWorkflowID, "", "e2e cleanup")
 	s.lastWorkflowID = ""
 }
 
@@ -208,7 +193,7 @@ func (s *GRPCE2ESuite) testCdcFlow(
 
 	destPeerId := s.createClickHousePeer(ctx)
 
-	flow, err := s.apiClient.CreateCDCFlow(ctx, &gen.CreateCDCFlowRequest{
+	flow, err := s.env.APIClient.CreateCDCFlow(ctx, &gen.CreateCDCFlowRequest{
 		CdcFlow: &gen.CDCFlow{
 			Name:        rand.Text(),
 			Source:      sourcePeerId,

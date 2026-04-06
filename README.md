@@ -76,3 +76,7 @@ For MySQL sources, register a `MYSQL` peer with `mysql_config` and create the fl
 ## Architecture
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed design decisions and project structure.
+
+## Benchmarking
+
+For manual CDC load-testing instructions, see [BENCHMARKS.md](BENCHMARKS.md).

@@ -69,6 +69,7 @@ func (c *DestinationConnector) Setup(ctx context.Context, tables []connectors.Ta
 		// for deduplication we can add a version column that will be used to keep only the latest version of the record in case of updates
 		// or in case of duplicate cdc event writes (e.g. due to at-least-once semantics of the source connector)
 		cols = append(cols, "_version UInt64")
+		cols = append(cols, "_ingested_at DateTime64(3, 'UTC') DEFAULT now64(3)")
 
 		orderBy := "tuple()" // default if no pk cols is defined, rather rare case
 		if len(pkCols) > 0 {

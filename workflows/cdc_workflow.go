@@ -69,7 +69,7 @@ func CdcFlowWorkflow(ctx workflow.Context, input CdcFlowWorkflowInput) error {
 	})
 
 	var setupOutput *SetupActivityOutput
-	err := workflow.ExecuteActivity(setupCtx, activities.SetupActivity, SetupActivityInput{FlowId: input.FlowId}).Get(setupCtx, &setupOutput)
+	err := workflow.ExecuteActivity(setupCtx, activities.SetupActivity, SetupActivityInput(input)).Get(setupCtx, &setupOutput)
 	if err != nil {
 		return fmt.Errorf("failed to setup connectors: %w", err)
 	}

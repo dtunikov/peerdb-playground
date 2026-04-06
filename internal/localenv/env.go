@@ -127,27 +127,27 @@ func Start(ctx context.Context, opts Options) (*Environment, error) {
 	}
 
 	if err := env.startPostgres(ctx); err != nil {
-		env.Close(context.Background())
+		env.Close(context.Background()) //nolint:errcheck
 		return nil, err
 	}
 	if err := env.runMigrations(ctx); err != nil {
-		env.Close(context.Background())
+		env.Close(context.Background()) //nolint:errcheck
 		return nil, err
 	}
 	if err := env.startMySQL(ctx); err != nil {
-		env.Close(context.Background())
+		env.Close(context.Background()) //nolint:errcheck
 		return nil, err
 	}
 	if err := env.startClickHouse(ctx); err != nil {
-		env.Close(context.Background())
+		env.Close(context.Background()) //nolint:errcheck
 		return nil, err
 	}
 	if err := env.startTemporal(ctx); err != nil {
-		env.Close(context.Background())
+		env.Close(context.Background()) //nolint:errcheck
 		return nil, err
 	}
 	if err := env.startWorkerAndAPI(ctx, cfg.CdcConfig); err != nil {
-		env.Close(context.Background())
+		env.Close(context.Background()) //nolint:errcheck
 		return nil, err
 	}
 

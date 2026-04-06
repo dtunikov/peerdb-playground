@@ -268,10 +268,10 @@ func (c *SourceConnector) sendStandbyStatus(ctx context.Context, replyRequested 
 
 func (c *SourceConnector) reconnect(ctx context.Context) error {
 	if c.replConn != nil {
-		c.replConn.Close(ctx)
+		c.replConn.Close(ctx) //nolint:errcheck
 	}
 	if c.conn != nil {
-		c.conn.Close(ctx)
+		c.conn.Close(ctx) //nolint:errcheck
 	}
 
 	conn, err := pg.Connect(ctx, c.cfg)
@@ -281,7 +281,7 @@ func (c *SourceConnector) reconnect(ctx context.Context) error {
 
 	replConn, err := pg.ConnectReplication(ctx, c.cfg)
 	if err != nil {
-		conn.Close(ctx)
+		conn.Close(ctx) //nolint:errcheck
 		return fmt.Errorf("failed to reconnect postgres replication connection: %w", err)
 	}
 

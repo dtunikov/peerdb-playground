@@ -155,7 +155,7 @@ func (c *SourceConnector) selectedTables(ctx context.Context) ([]connectors.Tabl
 		if err != nil {
 			return nil, fmt.Errorf("failed to list mysql tables: %w", err)
 		}
-		defer rows.Close()
+		defer rows.Close() //nolint:errcheck
 
 		var tables []connectors.TableIdentifier
 		for rows.Next() {
@@ -200,7 +200,7 @@ func (c *SourceConnector) getTableSchema(ctx context.Context, table connectors.T
 	if err != nil {
 		return connectors.TableSchema{}, fmt.Errorf("failed to query mysql columns for %s: %w", table.String(), err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	columns := make([]connectors.ColumnSchema, 0)
 	for rows.Next() {
@@ -251,7 +251,7 @@ func (c *SourceConnector) mysqlPrimaryKeyColumns(ctx context.Context, table conn
 	if err != nil {
 		return nil, fmt.Errorf("failed to query mysql primary key for %s: %w", table.String(), err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	pkCols := make(map[string]bool)
 	for rows.Next() {

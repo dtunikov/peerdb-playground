@@ -77,7 +77,7 @@ func (s *Service) ValidateFlow(ctx context.Context, flow *gen.CDCFlow) error {
 		if err != nil {
 			return errs.BadRequest.WithMessage("failed to connect to source peer").WithDetail(err)
 		}
-		defer srcConn.Close(ctx)
+		defer srcConn.Close(ctx) //nolint:errcheck
 
 		if cfg.PostgresSource.PublicationName != "" {
 			// check if it exists
@@ -98,7 +98,7 @@ func (s *Service) ValidateFlow(ctx context.Context, flow *gen.CDCFlow) error {
 		if err != nil {
 			return errs.BadRequest.WithMessage("failed to connect to source peer").WithDetail(err)
 		}
-		defer srcConn.Close()
+		defer srcConn.Close() //nolint:errcheck
 
 		if err := mysql.ValidateCDCPrerequisites(ctx, srcConn); err != nil {
 			return errs.BadRequest.WithMessage("mysql source is not configured for cdc").WithDetail(err)

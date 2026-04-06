@@ -175,7 +175,7 @@ func (s *GRPCE2ESuite) TearDownTest() {
 }
 
 func (s *GRPCE2ESuite) testCdcFlow(
-	ctx context.Context,
+	_ context.Context,
 	sourcePeerId string,
 	sourceConn sqlutil.ExecContexter,
 	dialect sourceDialect,

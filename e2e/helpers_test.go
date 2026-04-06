@@ -165,7 +165,7 @@ func (s *GRPCE2ESuite) loadUsersTableFromClickhouse(ctx context.Context, tableNa
 	if err != nil {
 		return nil, err
 	}
-	defer conn.Close()
+	defer conn.Close() //nolint:errcheck
 
 	rows, err := conn.Query(ctx, fmt.Sprintf(
 		`SELECT id, name, is_active, age, rating, price, score, birthday, created_at, balance, bio, avatar FROM "%s" FINAL ORDER BY id`,
@@ -174,7 +174,7 @@ func (s *GRPCE2ESuite) loadUsersTableFromClickhouse(ctx context.Context, tableNa
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var out []userRow
 	for rows.Next() {

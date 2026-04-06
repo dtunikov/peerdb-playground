@@ -188,7 +188,7 @@ func runOne(ctx context.Context, env *localenv.Environment, cfg Config, source S
 	if err != nil {
 		return RunResult{}, err
 	}
-	defer chConn.Close()
+	defer chConn.Close() //nolint:errcheck
 
 	pollConn, err := chpkg.Connect(ctx, chpkg.Config{
 		Host:     env.ClickHouseHost,
@@ -200,7 +200,7 @@ func runOne(ctx context.Context, env *localenv.Environment, cfg Config, source S
 	if err != nil {
 		return RunResult{}, err
 	}
-	defer pollConn.Close()
+	defer pollConn.Close() //nolint:errcheck
 
 	tableName := fmt.Sprintf("cdcbench_%s_%s_%d", source, cfg.Scenario, time.Now().UnixNano())
 	qualifiedName := fmt.Sprintf("%s.%s", spec.dialect.schema, tableName)
@@ -242,7 +242,7 @@ func runOne(ctx context.Context, env *localenv.Environment, cfg Config, source S
 		}
 		return errors.Join(errs...)
 	}
-	defer cleanup()
+	defer cleanup() //nolint:errcheck // best-effort cleanup
 
 	if err := waitForDestinationTable(ctx, chConn, tableName); err != nil {
 		return RunResult{}, err
@@ -429,7 +429,7 @@ func clickhouseTableExists(ctx context.Context, conn driver.Conn, tableName stri
 	if err != nil {
 		return false, err
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	if !rows.Next() {
 		return false, rows.Err()
@@ -598,7 +598,7 @@ func executeWindow(
 
 	if len(rows) > 0 {
 		if err := insertBatchTx(ctx, tx, spec.dialect, qualifiedName, rows); err != nil {
-			tx.Rollback()
+			tx.Rollback() //nolint:errcheck
 			return err
 		}
 	}
@@ -608,7 +608,7 @@ func executeWindow(
 			break
 		}
 		if err := updateRowTx(ctx, tx, spec.dialect, qualifiedName, id); err != nil {
-			tx.Rollback()
+			tx.Rollback() //nolint:errcheck
 			return err
 		}
 	}
@@ -636,7 +636,7 @@ func insertBatch(ctx context.Context, db *sql.DB, dialect sourceDialect, qualifi
 		return err
 	}
 	if err := insertBatchTx(ctx, tx, dialect, qualifiedName, rows); err != nil {
-		tx.Rollback()
+		tx.Rollback() //nolint:errcheck
 		return err
 	}
 	return tx.Commit()
@@ -770,7 +770,7 @@ func finalValidation(ctx context.Context, conn driver.Conn, tableName string) (F
 	if err != nil {
 		return FinalValidation{}, err
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	if !rows.Next() {
 		return FinalValidation{}, rows.Err()
@@ -788,7 +788,7 @@ func rawMaxSeq(ctx context.Context, conn driver.Conn, tableName string) (int64, 
 	if err != nil {
 		return 0, err
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	if !rows.Next() {
 		return 0, rows.Err()
@@ -812,7 +812,7 @@ ORDER BY seq`, tableName), fromSeq, maxSeq)
 		if err != nil {
 			return err
 		}
-		defer rows.Close()
+		defer rows.Close() //nolint:errcheck
 
 		var (
 			newLatencies []float64

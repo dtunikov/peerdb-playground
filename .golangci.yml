@@ -1,0 +1,9 @@
+version: "2"
+
+linters:
+  settings:
+    errcheck:
+      exclude-functions:
+        # connectors
+        - (peerdb-playground/connectors.SourceConnector).Close
+        - (peerdb-playground/connectors.DestinationConnector).Close

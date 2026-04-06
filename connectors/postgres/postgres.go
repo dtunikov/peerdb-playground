@@ -46,7 +46,7 @@ func NewConnector(ctx context.Context, flowId string, connConfig postgres.Config
 
 	replConn, err := postgres.ConnectReplication(ctx, connConfig)
 	if err != nil {
-		conn.Close(ctx)
+		conn.Close(ctx) //nolint:errcheck
 		return nil, fmt.Errorf("fail to connect to postgres with replication: %w", err)
 	}
 
@@ -119,9 +119,8 @@ func (c *SourceConnector) Setup(ctx context.Context) (string, error) {
 }
 
 func (c *SourceConnector) Teardown(ctx context.Context) error {
-	c.Close(ctx)
 	// TODO: remove publication (if we created it) and replication slot to clean up resources in postgres.
-	return nil
+	return c.Close(ctx)
 }
 
 func (c *SourceConnector) Read(ctx context.Context, ch chan<- connectors.RecordBatch) error {
@@ -219,11 +218,11 @@ func (c *SourceConnector) getPublicationTables(ctx context.Context, pubName stri
 
 func (c *SourceConnector) Close(ctx context.Context) error {
 	if c.conn != nil {
-		c.conn.Close(ctx)
+		c.conn.Close(ctx) //nolint:errcheck
 		c.conn = nil
 	}
 	if c.replConn != nil {
-		c.replConn.Close(ctx)
+		c.replConn.Close(ctx) //nolint:errcheck
 		c.replConn = nil
 	}
 	return nil

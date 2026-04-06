@@ -43,7 +43,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	defer env.Close(context.Background())
+	defer env.Close(context.Background()) //nolint:errcheck
 
 	results, err := cdcbench.Run(ctx, env, cdcbench.Config{
 		Source:          cdcbench.SourceKind(*source),

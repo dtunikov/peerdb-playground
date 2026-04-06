@@ -94,7 +94,12 @@ jobs:
           name: generated-code
           path: gen/
 
-      - name: Run unit tests
+      - name: Install Temporal CLI
+        uses: temporalio/setup-temporal@v0
+        with:
+          version: latest
+
+      - name: Run tests
         run: go test -race -count=1 -timeout 10m ./...
 
   build-images:

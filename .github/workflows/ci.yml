@@ -18,13 +18,15 @@ jobs:
     name: Generate Protobuf
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version: ${{ env.GO_VERSION }}
 
       - uses: bufbuild/buf-setup-action@v1
+        with:
+          github_token: ${{ github.token }}
 
       - name: Generate protobuf code
         run: buf generate
@@ -39,7 +41,7 @@ jobs:
           type CdcFlowConfigSourceConfig = isCdcFlowConfig_SourceConfig
           EOF
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: generated-code
           path: gen/
@@ -50,13 +52,13 @@ jobs:
     needs: generate
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version: ${{ env.GO_VERSION }}
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v6
         with:
           name: generated-code
           path: gen/
@@ -70,6 +72,8 @@ jobs:
           version: v2.11.4
 
       - uses: bufbuild/buf-setup-action@v1
+        with:
+          github_token: ${{ github.token }}
 
       - name: Buf lint
         run: buf lint
@@ -83,13 +87,13 @@ jobs:
     needs: generate
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version: ${{ env.GO_VERSION }}
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v6
         with:
           name: generated-code
           path: gen/
@@ -110,7 +114,7 @@ jobs:
       matrix:
         target: [api, worker]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: docker/login-action@v3
         with:

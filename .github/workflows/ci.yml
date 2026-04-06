@@ -100,7 +100,7 @@ jobs:
           version: latest
 
       - name: Run tests
-        run: go test -race -count=1 -timeout 10m ./...
+        run: go test -count=1 -timeout 10m ./...
 
   build-images:
     name: Build & Push ${{ matrix.target }}

@@ -31,6 +31,11 @@ func (a *Activities) SetupActivity(ctx context.Context, input SetupActivityInput
 		return nil, fmt.Errorf("failed to get destination peer: %w", err)
 	}
 
+	err = a.flowsSvc.UpdateFlowStatus(ctx, input.FlowId, gen.CdcFlowStatus_CDC_FLOW_STATUS_SETUP)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update flow status to SETUP: %w", err)
+	}
+
 	logger := slog.With("flowId", input.FlowId)
 	logger.Info("setting up connectors for flow")
 

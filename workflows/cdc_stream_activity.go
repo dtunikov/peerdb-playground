@@ -62,6 +62,11 @@ func (a *Activities) CdcStreamActivity(ctx context.Context, input CdcStreamActiv
 		return err
 	}
 
+	err = a.flowsSvc.UpdateFlowStatus(ctx, input.FlowId, gen.CdcFlowStatus_CDC_FLOW_STATUS_CDC)
+	if err != nil {
+		return fmt.Errorf("failed to update flow status to CDC: %w", err)
+	}
+
 	logger := slog.With("flowId", input.FlowId)
 	destConn, err := newDestinationConnector(ctx, dest, flow.GetConfig(), logger)
 	if err != nil {

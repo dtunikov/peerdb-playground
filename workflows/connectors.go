@@ -23,10 +23,10 @@ func newSourceConnector(
 	resumeCheckpoint string,
 ) (connectors.SourceConnector, error) {
 	switch peer.Type {
-	case gen.PeerType_POSTGRES:
+	case gen.PeerType_PEER_TYPE_POSTGRES:
 		return pg.NewConnector(ctx, flowId, postgres.ConfigFromProto(peer.GetPostgresConfig()), logger, flowCfg.GetTables(),
 			flowCfg.GetPostgresSource().GetPublicationName(), resumeCheckpoint)
-	case gen.PeerType_MYSQL:
+	case gen.PeerType_PEER_TYPE_MYSQL:
 		return my.NewConnector(ctx, flowId, pkgmysql.ConfigFromProto(peer.GetMysqlConfig()), logger, flowCfg.GetTables(), resumeCheckpoint)
 	default:
 		return nil, fmt.Errorf("unsupported source peer type: %s", peer.Type)
@@ -45,7 +45,7 @@ func newDestinationConnector(ctx context.Context, peer *gen.Peer, flowCfg *gen.C
 		}
 	}
 	switch peer.Type {
-	case gen.PeerType_CLICKHOUSE:
+	case gen.PeerType_PEER_TYPE_CLICKHOUSE:
 		return ch.NewConnector(ctx, clickhouse.ConfigFromProto(peer.GetClickhouseConfig()), logger, tableMappings)
 	default:
 		return nil, fmt.Errorf("unsupported destination peer type: %s", peer.Type)

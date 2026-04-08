@@ -37,10 +37,20 @@ message TableMapping {
 }
 
 enum PeerType {
-  UNSPECIFIED = 0;
-  POSTGRES = 1;
-  CLICKHOUSE = 2;
-  MYSQL = 3;
+  PEER_TYPE_UNSPECIFIED = 0;
+  PEER_TYPE_POSTGRES = 1;
+  PEER_TYPE_CLICKHOUSE = 2;
+  PEER_TYPE_MYSQL = 3;
+}
+
+enum CdcFlowStatus {
+  CDC_FLOW_STATUS_UNSPECIFIED = 0;
+  CDC_FLOW_STATUS_CREATED = 1;
+  CDC_FLOW_STATUS_SETUP = 2;
+  CDC_FLOW_STATUS_SNAPSHOT = 3;
+  CDC_FLOW_STATUS_CDC = 4;
+  CDC_FLOW_STATUS_PAUSED = 5;
+  CDC_FLOW_STATUS_FAILED = 6;
 }
 
 message Peer {
@@ -94,14 +104,19 @@ message CDCFlow {
   string source = 3;
   string destination = 4;
   CdcFlowConfig config = 5;
+  CdcFlowStatus status = 6;
 }
 
 message CreateCDCFlowRequest {
   CDCFlow cdc_flow = 1;
 }
 
-message CreateResponse {
-  string id = 1;
+message CreatePeerResponse {
+  Peer peer = 1;
+}
+
+message CreateCDCFlowResponse {
+  CDCFlow cdc_flow = 1;
 }
 
 message GetPeersRequest {}
@@ -116,12 +131,26 @@ message GetCDCFlowsResponse {
   repeated CDCFlow cdc_flows = 1;
 }
 
+message PauseCDCFlowRequest {
+  string id = 1;
+}
+
+message PauseCDCFlowResponse {}
+
+message ResumeCDCFlowRequest {
+  string id = 1;
+}
+
+message ResumeCDCFlowResponse {}
+
 service PeerdbService {
   // peers
-  rpc CreatePeer(CreatePeerRequest) returns (CreateResponse) {}
+  rpc CreatePeer(CreatePeerRequest) returns (CreatePeerResponse) {}
   rpc GetPeers(GetPeersRequest) returns(GetPeersResponse) {}
 
   // flows
-  rpc CreateCDCFlow(CreateCDCFlowRequest) returns (CreateResponse) {}
+  rpc CreateCDCFlow(CreateCDCFlowRequest) returns (CreateCDCFlowResponse) {}
   rpc GetCDCFlows(GetCDCFlowsRequest) returns (GetCDCFlowsResponse) {}
+  rpc PauseCDCFlow(PauseCDCFlowRequest) returns (PauseCDCFlowResponse) {}
+  rpc ResumeCDCFlow(ResumeCDCFlowRequest) returns (ResumeCDCFlowResponse) {}
 }

@@ -19,7 +19,16 @@ type SnapshotWorkflowInput struct {
 }
 
 func SnapshotWorkflow(ctx workflow.Context, input SnapshotWorkflowInput) error {
-	activityOpts := workflow.ActivityOptions{
+	sCtx := defaultActivityCtx(ctx)
+	err := workflow.ExecuteActivity(sCtx, activities.UpdateFlowStatusActivity, UpdateFlowStatusActivityInput{
+		FlowId: input.FlowId,
+		Status: gen.CdcFlowStatus_CDC_FLOW_STATUS_SNAPSHOT,
+	}).Get(sCtx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to update flow status to SNAPSHOT: %w", err)
+	}
+
+	snapshotTableCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 1 * time.Hour,
 		HeartbeatTimeout:    30 * time.Second,
 		RetryPolicy: &temporal.RetryPolicy{
@@ -28,8 +37,7 @@ func SnapshotWorkflow(ctx workflow.Context, input SnapshotWorkflowInput) error {
 			MaximumInterval:    1 * time.Minute,
 			MaximumAttempts:    3,
 		},
-	}
-	activityCtx := workflow.WithActivityOptions(ctx, activityOpts)
+	})
 
 	logger := workflow.GetLogger(ctx)
 	logger.Info("Starting snapshot workflow", "flowId", input.FlowId, "tableCount", len(input.Tables))
@@ -49,7 +57,7 @@ func SnapshotWorkflow(ctx workflow.Context, input SnapshotWorkflowInput) error {
 			running--
 		}
 
-		future := workflow.ExecuteActivity(activityCtx, activities.SnapshotTableActivity, SnapshotTableActivityInput{
+		future := workflow.ExecuteActivity(snapshotTableCtx, activities.SnapshotTableActivity, SnapshotTableActivityInput{
 			FlowId: input.FlowId,
 			Table:  table,
 		})

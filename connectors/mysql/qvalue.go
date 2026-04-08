@@ -13,7 +13,7 @@ func mysqlColumnValue(name string, qtype types.QType, value any) (connectors.Col
 		return connectors.ColumnValue{Name: name, Value: types.QValueNull{}}, nil
 	}
 
-	switch qtype := qtype.(type) {
+	switch qtype.(type) {
 	case types.QTypeBool:
 		v, err := mysqlBoolValue(value)
 		return connectors.ColumnValue{Name: name, Value: types.QValueBool{Val: v}}, err
@@ -51,7 +51,7 @@ func mysqlColumnValue(name string, qtype types.QType, value any) (connectors.Col
 	case types.QTypeJSON:
 		return connectors.ColumnValue{Name: name, Value: types.QValueJSON{Val: mysqlStringValue(value)}}, nil
 	case types.QTypeNumeric:
-		return connectors.ColumnValue{Name: name, Value: types.QValueNumeric{Val: mysqlNumericString(value, qtype)}}, nil
+		return connectors.ColumnValue{Name: name, Value: types.QValueNumeric{Val: mysqlNumericString(value)}}, nil
 	default:
 		return connectors.ColumnValue{Name: name, Value: types.QValueString{Val: mysqlStringValue(value)}}, nil
 	}
@@ -181,7 +181,7 @@ func mysqlTimeValue(value any) (time.Time, error) {
 	}
 }
 
-func mysqlNumericString(value any, qtype types.QTypeNumeric) string {
+func mysqlNumericString(value any) string {
 	switch v := value.(type) {
 	case string:
 		return v

@@ -15,7 +15,7 @@ func TestValidatePeerTypeMatchesConfig(t *testing.T) {
 		{
 			name: "postgres matches",
 			peer: &gen.Peer{
-				Type: gen.PeerType_POSTGRES,
+				Type: gen.PeerType_PEER_TYPE_POSTGRES,
 				Config: &gen.Peer_PostgresConfig{
 					PostgresConfig: &gen.PostgresConfig{},
 				},
@@ -24,7 +24,7 @@ func TestValidatePeerTypeMatchesConfig(t *testing.T) {
 		{
 			name: "mysql matches",
 			peer: &gen.Peer{
-				Type: gen.PeerType_MYSQL,
+				Type: gen.PeerType_PEER_TYPE_MYSQL,
 				Config: &gen.Peer_MysqlConfig{
 					MysqlConfig: &gen.MysqlConfig{},
 				},
@@ -33,7 +33,7 @@ func TestValidatePeerTypeMatchesConfig(t *testing.T) {
 		{
 			name: "mismatch returns error",
 			peer: &gen.Peer{
-				Type: gen.PeerType_MYSQL,
+				Type: gen.PeerType_PEER_TYPE_MYSQL,
 				Config: &gen.Peer_PostgresConfig{
 					PostgresConfig: &gen.PostgresConfig{},
 				},

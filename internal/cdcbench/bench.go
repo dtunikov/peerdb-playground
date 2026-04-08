@@ -304,7 +304,7 @@ payload TEXT NOT NULL`,
 			sourceConfig: &gen.CdcFlowConfig_PostgresSource{PostgresSource: &gen.PostgresSourceConfig{}},
 			sourcePeer: &gen.Peer{
 				Name: fmt.Sprintf("cdcbench-pg-%d", time.Now().UnixNano()),
-				Type: gen.PeerType_POSTGRES,
+				Type: gen.PeerType_PEER_TYPE_POSTGRES,
 				Config: &gen.Peer_PostgresConfig{PostgresConfig: &gen.PostgresConfig{
 					Host:     env.PostgresHost,
 					Port:     env.PostgresPort,
@@ -334,7 +334,7 @@ payload TEXT NOT NULL`,
 			sourceConfig: &gen.CdcFlowConfig_MysqlSource{MysqlSource: &gen.MysqlSourceConfig{}},
 			sourcePeer: &gen.Peer{
 				Name: fmt.Sprintf("cdcbench-mysql-%d", time.Now().UnixNano()),
-				Type: gen.PeerType_MYSQL,
+				Type: gen.PeerType_PEER_TYPE_MYSQL,
 				Config: &gen.Peer_MysqlConfig{MysqlConfig: &gen.MysqlConfig{
 					Host:     env.MySQLHost,
 					Port:     env.MySQLPort,
@@ -352,7 +352,7 @@ payload TEXT NOT NULL`,
 func clickhousePeer(env *localenv.Environment) *gen.Peer {
 	return &gen.Peer{
 		Name: fmt.Sprintf("cdcbench-clickhouse-%d", time.Now().UnixNano()),
-		Type: gen.PeerType_CLICKHOUSE,
+		Type: gen.PeerType_PEER_TYPE_CLICKHOUSE,
 		Config: &gen.Peer_ClickhouseConfig{ClickhouseConfig: &gen.ClickhouseConfig{
 			Host:     env.ClickHouseHost,
 			Port:     env.ClickHousePort,
@@ -368,7 +368,7 @@ func createPeer(ctx context.Context, env *localenv.Environment, peer *gen.Peer) 
 	if err != nil {
 		return "", err
 	}
-	return resp.Id, nil
+	return resp.Peer.Id, nil
 }
 
 func createFlow(
@@ -405,7 +405,7 @@ func createFlow(
 		return "", "", err
 	}
 
-	return resp.Id, server.CdcFlowPrefix + resp.Id, nil
+	return resp.CdcFlow.Id, server.CdcFlowPrefix + resp.CdcFlow.Id, nil
 }
 
 func waitForDestinationTable(ctx context.Context, conn driver.Conn, tableName string) error {

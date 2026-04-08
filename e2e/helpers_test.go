@@ -33,7 +33,7 @@ func (s *GRPCE2ESuite) createPostgresPeer(ctx context.Context) string {
 	sourcePeer, err := s.env.APIClient.CreatePeer(ctx, &gen.CreatePeerRequest{
 		Peer: &gen.Peer{
 			Name: fmt.Sprintf("pg-source-%s", rand.Text()),
-			Type: gen.PeerType_POSTGRES,
+			Type: gen.PeerType_PEER_TYPE_POSTGRES,
 			Config: &gen.Peer_PostgresConfig{
 				PostgresConfig: &gen.PostgresConfig{
 					Host:     s.env.PostgresHost,
@@ -48,14 +48,14 @@ func (s *GRPCE2ESuite) createPostgresPeer(ctx context.Context) string {
 	})
 	s.Require().NoError(err)
 
-	return sourcePeer.Id
+	return sourcePeer.Peer.Id
 }
 
 func (s *GRPCE2ESuite) createMySQLPeer(ctx context.Context) string {
 	sourcePeer, err := s.env.APIClient.CreatePeer(ctx, &gen.CreatePeerRequest{
 		Peer: &gen.Peer{
 			Name: fmt.Sprintf("mysql-source-%s", rand.Text()),
-			Type: gen.PeerType_MYSQL,
+			Type: gen.PeerType_PEER_TYPE_MYSQL,
 			Config: &gen.Peer_MysqlConfig{
 				MysqlConfig: &gen.MysqlConfig{
 					Host:     s.env.MySQLHost,
@@ -69,14 +69,14 @@ func (s *GRPCE2ESuite) createMySQLPeer(ctx context.Context) string {
 	})
 	s.Require().NoError(err)
 
-	return sourcePeer.Id
+	return sourcePeer.Peer.Id
 }
 
 func (s *GRPCE2ESuite) createClickHousePeer(ctx context.Context) string {
 	destPeer, err := s.env.APIClient.CreatePeer(ctx, &gen.CreatePeerRequest{
 		Peer: &gen.Peer{
 			Name: fmt.Sprintf("destination-clickhouse-%s", rand.Text()),
-			Type: gen.PeerType_CLICKHOUSE,
+			Type: gen.PeerType_PEER_TYPE_CLICKHOUSE,
 			Config: &gen.Peer_ClickhouseConfig{
 				ClickhouseConfig: &gen.ClickhouseConfig{
 					Host:     s.env.ClickHouseHost,
@@ -89,7 +89,7 @@ func (s *GRPCE2ESuite) createClickHousePeer(ctx context.Context) string {
 		},
 	})
 	s.Require().NoError(err)
-	return destPeer.Id
+	return destPeer.Peer.Id
 }
 
 func (s *GRPCE2ESuite) createAndSeedUsersTable(

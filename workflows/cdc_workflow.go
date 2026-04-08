@@ -37,6 +37,7 @@ package workflows
 
 import (
 	"fmt"
+	"peerdb-playground/gen"
 	"time"
 
 	"go.temporal.io/sdk/temporal"
@@ -48,15 +49,44 @@ type CdcFlowWorkflowInput struct {
 }
 
 func CdcFlowWorkflow(ctx workflow.Context, input CdcFlowWorkflowInput) error {
-	setupCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 5 * time.Minute,
-		RetryPolicy: &temporal.RetryPolicy{
-			InitialInterval:    5 * time.Second,
-			BackoffCoefficient: 2.0,
-			MaximumInterval:    1 * time.Minute,
-			MaximumAttempts:    3,
-		},
-	})
+	logger := workflow.GetLogger(ctx)
+
+	var flow gen.CDCFlow
+	err := workflow.ExecuteActivity(defaultActivityCtx(ctx), activities.GetFlow, input.FlowId).Get(ctx, &flow)
+	if err != nil {
+		return fmt.Errorf("failed to get flow: %w", err)
+	}
+
+	status := flow.GetStatus()
+	initialCheckpoint := ""
+	if status == gen.CdcFlowStatus_CDC_FLOW_STATUS_CREATED {
+		// run initial setup, otherwise skip directly to CDC streaming
+		setupCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+			StartToCloseTimeout: 5 * time.Minute,
+			RetryPolicy: &temporal.RetryPolicy{
+				InitialInterval:    5 * time.Second,
+				BackoffCoefficient: 2.0,
+				MaximumInterval:    1 * time.Minute,
+				MaximumAttempts:    3,
+			},
+		})
+		var setupOutput *SetupActivityOutput
+		err = workflow.ExecuteActivity(setupCtx, activities.SetupActivity, SetupActivityInput(input)).Get(setupCtx, &setupOutput)
+		if err != nil {
+			return fmt.Errorf("failed to setup connectors: %w", err)
+		}
+
+		err = workflow.ExecuteChildWorkflow(ctx, SnapshotWorkflow, SnapshotWorkflowInput{
+			FlowId: input.FlowId,
+			Tables: setupOutput.Tables,
+		}).Get(ctx, nil)
+		if err != nil {
+			return fmt.Errorf("failed to execute snapshot workflow: %w", err)
+		}
+
+		initialCheckpoint = setupOutput.InitialSourceCheckpoint
+	}
+
 	cdcCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 365 * 24 * time.Hour,
 		HeartbeatTimeout:    30 * time.Second,
@@ -67,30 +97,36 @@ func CdcFlowWorkflow(ctx workflow.Context, input CdcFlowWorkflowInput) error {
 			MaximumAttempts:    0,
 		},
 	})
-
-	var setupOutput *SetupActivityOutput
-	err := workflow.ExecuteActivity(setupCtx, activities.SetupActivity, SetupActivityInput(input)).Get(setupCtx, &setupOutput)
-	if err != nil {
-		return fmt.Errorf("failed to setup connectors: %w", err)
-	}
-
-	err = workflow.ExecuteChildWorkflow(ctx, SnapshotWorkflow, SnapshotWorkflowInput{
-		FlowId: input.FlowId,
-		Tables: setupOutput.Tables,
-	}).Get(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("failed to execute snapshot workflow: %w", err)
-	}
-
 	// InitialSourceCheckpoint was captured during Setup, before the snapshot started.
 	// CDC must start from this checkpoint to replay writes that occurred during the snapshot,
 	// ensuring no data is lost even though CDC runs after the snapshot completes.
-	err = workflow.ExecuteActivity(cdcCtx, activities.CdcStreamActivity, CdcStreamActivityInput{
+	cdcFuture := workflow.ExecuteActivity(cdcCtx, activities.CdcStreamActivity, CdcStreamActivityInput{
 		FlowId:                  input.FlowId,
-		InitialSourceCheckpoint: setupOutput.InitialSourceCheckpoint,
-	}).
-		Get(cdcCtx, nil)
+		InitialSourceCheckpoint: initialCheckpoint,
+	})
+
+	// using Await instead of Get to react to workflow cancellation quickly
+	if err := workflow.Await(ctx, func() bool {
+		return cdcFuture.IsReady()
+	}); err != nil {
+		// context cancelled
+		return err
+	}
+
+	if err := cdcFuture.Get(ctx, nil); err != nil {
+		return fmt.Errorf("cdc activity failed: %w", err)
+	}
+
 	if err != nil {
+		aCtx := defaultActivityCtx(ctx)
+		statusErr := workflow.ExecuteActivity(aCtx, activities.UpdateFlowStatusActivity, UpdateFlowStatusActivityInput{
+			FlowId: input.FlowId,
+			Status: gen.CdcFlowStatus_CDC_FLOW_STATUS_FAILED,
+		}).Get(aCtx, nil)
+		if statusErr != nil {
+			logger.Error("failed to update cdc flow status to FAILED", "error", statusErr)
+		}
+
 		return fmt.Errorf("cdc activity failed: %w", err)
 	}
 

@@ -76,75 +76,75 @@ func columnSchemaFromProto(c *gen.ColumnSchema) ColumnSchema {
 func qTypeToProto(t types.QType) gen.QType {
 	switch t.(type) {
 	case types.QTypeBool:
-		return gen.QType_QTYPE_BOOL
+		return gen.QType_Q_TYPE_BOOL
 	case types.QTypeInt16:
-		return gen.QType_QTYPE_INT16
+		return gen.QType_Q_TYPE_INT16
 	case types.QTypeInt32:
-		return gen.QType_QTYPE_INT32
+		return gen.QType_Q_TYPE_INT32
 	case types.QTypeInt64:
-		return gen.QType_QTYPE_INT64
+		return gen.QType_Q_TYPE_INT64
 	case types.QTypeFloat32:
-		return gen.QType_QTYPE_FLOAT32
+		return gen.QType_Q_TYPE_FLOAT32
 	case types.QTypeFloat64:
-		return gen.QType_QTYPE_FLOAT64
+		return gen.QType_Q_TYPE_FLOAT64
 	case types.QTypeString:
-		return gen.QType_QTYPE_STRING
+		return gen.QType_Q_TYPE_STRING
 	case types.QTypeBytes:
-		return gen.QType_QTYPE_BYTES
+		return gen.QType_Q_TYPE_BYTES
 	case types.QTypeDate:
-		return gen.QType_QTYPE_DATE
+		return gen.QType_Q_TYPE_DATE
 	case types.QTypeTime:
-		return gen.QType_QTYPE_TIME
+		return gen.QType_Q_TYPE_TIME
 	case types.QTypeTimestamp:
-		return gen.QType_QTYPE_TIMESTAMP
+		return gen.QType_Q_TYPE_TIMESTAMP
 	case types.QTypeTimestampTZ:
-		return gen.QType_QTYPE_TIMESTAMPTZ
+		return gen.QType_Q_TYPE_TIMESTAMPTZ
 	case types.QTypeUUID:
-		return gen.QType_QTYPE_UUID
+		return gen.QType_Q_TYPE_UUID
 	case types.QTypeJSON:
-		return gen.QType_QTYPE_JSON
+		return gen.QType_Q_TYPE_JSON
 	case types.QTypeNumeric:
-		return gen.QType_QTYPE_NUMERIC
+		return gen.QType_Q_TYPE_NUMERIC
 	case types.QTypeEnum:
-		return gen.QType_QTYPE_ENUM
+		return gen.QType_Q_TYPE_ENUM
 	default:
-		return gen.QType_QTYPE_UNSPECIFIED
+		return gen.QType_Q_TYPE_UNSPECIFIED
 	}
 }
 
 func qTypeFromProto(t gen.QType, precision, scale int, enumValues []string) types.QType {
 	switch t {
-	case gen.QType_QTYPE_BOOL:
+	case gen.QType_Q_TYPE_BOOL:
 		return types.QTypeBool{}
-	case gen.QType_QTYPE_INT16:
+	case gen.QType_Q_TYPE_INT16:
 		return types.QTypeInt16{}
-	case gen.QType_QTYPE_INT32:
+	case gen.QType_Q_TYPE_INT32:
 		return types.QTypeInt32{}
-	case gen.QType_QTYPE_INT64:
+	case gen.QType_Q_TYPE_INT64:
 		return types.QTypeInt64{}
-	case gen.QType_QTYPE_FLOAT32:
+	case gen.QType_Q_TYPE_FLOAT32:
 		return types.QTypeFloat32{}
-	case gen.QType_QTYPE_FLOAT64:
+	case gen.QType_Q_TYPE_FLOAT64:
 		return types.QTypeFloat64{}
-	case gen.QType_QTYPE_STRING:
+	case gen.QType_Q_TYPE_STRING:
 		return types.QTypeString{}
-	case gen.QType_QTYPE_BYTES:
+	case gen.QType_Q_TYPE_BYTES:
 		return types.QTypeBytes{}
-	case gen.QType_QTYPE_DATE:
+	case gen.QType_Q_TYPE_DATE:
 		return types.QTypeDate{}
-	case gen.QType_QTYPE_TIME:
+	case gen.QType_Q_TYPE_TIME:
 		return types.QTypeTime{}
-	case gen.QType_QTYPE_TIMESTAMP:
+	case gen.QType_Q_TYPE_TIMESTAMP:
 		return types.QTypeTimestamp{}
-	case gen.QType_QTYPE_TIMESTAMPTZ:
+	case gen.QType_Q_TYPE_TIMESTAMPTZ:
 		return types.QTypeTimestampTZ{}
-	case gen.QType_QTYPE_UUID:
+	case gen.QType_Q_TYPE_UUID:
 		return types.QTypeUUID{}
-	case gen.QType_QTYPE_JSON:
+	case gen.QType_Q_TYPE_JSON:
 		return types.QTypeJSON{}
-	case gen.QType_QTYPE_NUMERIC:
+	case gen.QType_Q_TYPE_NUMERIC:
 		return types.QTypeNumeric{Precision: precision, Scale: scale}
-	case gen.QType_QTYPE_ENUM:
+	case gen.QType_Q_TYPE_ENUM:
 		return types.QTypeEnum{Values: enumValues}
 	default:
 		return types.QTypeString{}

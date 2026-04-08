@@ -10,6 +10,7 @@ import (
 	"peerdb-playground/pkg/postgres"
 	"peerdb-playground/services/peers"
 
+	sq "github.com/Masterminds/squirrel"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/protobuf/proto"
@@ -69,7 +70,7 @@ func (s *Service) ValidateFlow(ctx context.Context, flow *gen.CDCFlow) error {
 
 	switch cfg := flow.Config.GetSourceConfig().(type) {
 	case *gen.CdcFlowConfig_PostgresSource:
-		if src.Type != gen.PeerType_POSTGRES {
+		if src.Type != gen.PeerType_PEER_TYPE_POSTGRES {
 			return errs.BadRequest.WithMessage("cdc flow source config is for postgres, but source peer is not postgres")
 		}
 
@@ -90,7 +91,7 @@ func (s *Service) ValidateFlow(ctx context.Context, flow *gen.CDCFlow) error {
 			}
 		}
 	case *gen.CdcFlowConfig_MysqlSource:
-		if src.Type != gen.PeerType_MYSQL {
+		if src.Type != gen.PeerType_PEER_TYPE_MYSQL {
 			return errs.BadRequest.WithMessage("cdc flow source config is for mysql, but source peer is not mysql")
 		}
 
@@ -110,14 +111,14 @@ func (s *Service) ValidateFlow(ctx context.Context, flow *gen.CDCFlow) error {
 	return nil
 }
 
-func (s *Service) CreateFlow(ctx context.Context, flow *gen.CDCFlow) (string, error) {
+func (s *Service) CreateFlow(ctx context.Context, flow *gen.CDCFlow) (*gen.CDCFlow, error) {
 	if err := s.ValidateFlow(ctx, flow); err != nil {
-		return "", err
+		return nil, err
 	}
 
 	configJSON, err := proto.Marshal(flow.Config)
 	if err != nil {
-		return "", fmt.Errorf("failed to marshal cdc flow config: %w", err)
+		return nil, fmt.Errorf("failed to marshal cdc flow config: %w", err)
 	}
 
 	sql, args, err := postgres.Sql.
@@ -127,21 +128,20 @@ func (s *Service) CreateFlow(ctx context.Context, flow *gen.CDCFlow) (string, er
 		Suffix("RETURNING id").
 		ToSql()
 	if err != nil {
-		return "", fmt.Errorf("failed to build query: %w", err)
+		return nil, fmt.Errorf("failed to build query: %w", err)
 	}
 
-	var id string
-	err = s.pg.QueryRow(ctx, sql, args...).Scan(&id)
+	err = s.pg.QueryRow(ctx, sql, args...).Scan(&flow.Id)
 	if err != nil {
-		return "", fmt.Errorf("failed to execute query: %w", err)
+		return nil, fmt.Errorf("failed to execute query: %w", err)
 	}
 
-	return id, nil
+	return flow, nil
 }
 
 func (s *Service) GetFlow(ctx context.Context, id string) (*gen.CDCFlow, error) {
 	sql, args, err := postgres.Sql.
-		Select("id", "name", "source", "destination", "config").
+		Select("id", "name", "source", "destination", "config", "status").
 		From(cdcFlowTable).
 		Where("id = ?", id).
 		ToSql()
@@ -151,7 +151,7 @@ func (s *Service) GetFlow(ctx context.Context, id string) (*gen.CDCFlow, error) 
 
 	var flow gen.CDCFlow
 	var configBytes []byte
-	err = s.pg.QueryRow(ctx, sql, args...).Scan(&flow.Id, &flow.Name, &flow.Source, &flow.Destination, &configBytes)
+	err = s.pg.QueryRow(ctx, sql, args...).Scan(&flow.Id, &flow.Name, &flow.Source, &flow.Destination, &configBytes, &flow.Status)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute query: %w", err)
 	}
@@ -196,6 +196,24 @@ func (s *Service) SaveSourceCheckpoint(ctx context.Context, flowID, checkpoint s
 		Columns("flow_id", "checkpoint").
 		Values(flowID, checkpoint).
 		Suffix("ON CONFLICT (flow_id) DO UPDATE SET checkpoint = EXCLUDED.checkpoint, updated_at = now()").
+		ToSql()
+	if err != nil {
+		return fmt.Errorf("failed to build query: %w", err)
+	}
+
+	if _, err := s.pg.Exec(ctx, sql, args...); err != nil {
+		return fmt.Errorf("failed to execute query: %w", err)
+	}
+
+	return nil
+}
+
+func (s *Service) UpdateFlowStatus(ctx context.Context, flowID string, status gen.CdcFlowStatus) error {
+	sql, args, err := postgres.Sql.
+		Update(cdcFlowTable).
+		Set("status", status).
+		Set("updated_at", sq.Expr("now()")).
+		Where("id = ?", flowID).
 		ToSql()
 	if err != nil {
 		return fmt.Errorf("failed to build query: %w", err)

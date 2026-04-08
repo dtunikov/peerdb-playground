@@ -66,7 +66,7 @@ func (s *Service) ValidatePeer(ctx context.Context, peer *gen.Peer) error {
 	if peer.Name == "" {
 		return errs.BadRequest.WithMessage("name can't be empty")
 	}
-	if peer.Type == gen.PeerType_UNSPECIFIED {
+	if peer.Type == gen.PeerType_PEER_TYPE_UNSPECIFIED {
 		return errs.BadRequest.WithMessage("type must be specified")
 	}
 	if peer.Config == nil {
@@ -106,15 +106,15 @@ func (s *Service) ValidatePeer(ctx context.Context, peer *gen.Peer) error {
 	return nil
 }
 
-func (s *Service) CreatePeer(ctx context.Context, peer *gen.Peer) (string, error) {
+func (s *Service) CreatePeer(ctx context.Context, peer *gen.Peer) (*gen.Peer, error) {
 	err := s.ValidatePeer(ctx, peer)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	encryptedConfig, err := s.encryptConfig(peer)
 	if err != nil {
-		return "", fmt.Errorf("failed to encrypt peer config: %w", err)
+		return nil, fmt.Errorf("failed to encrypt peer config: %w", err)
 	}
 
 	sql, args, err := postgres.Sql.
@@ -124,16 +124,15 @@ func (s *Service) CreatePeer(ctx context.Context, peer *gen.Peer) (string, error
 		Suffix("RETURNING id").
 		ToSql()
 	if err != nil {
-		return "", fmt.Errorf("failed to build query: %w", err)
+		return nil, fmt.Errorf("failed to build query: %w", err)
 	}
 
-	var id string
-	err = s.pg.QueryRow(ctx, sql, args...).Scan(&id)
+	err = s.pg.QueryRow(ctx, sql, args...).Scan(&peer.Id)
 	if err != nil {
-		return "", fmt.Errorf("failed to execute query: %w", err)
+		return nil, fmt.Errorf("failed to execute query: %w", err)
 	}
 
-	return id, nil
+	return peer, nil
 }
 
 func (s *Service) GetPeer(ctx context.Context, id string) (*gen.Peer, error) {
@@ -160,21 +159,21 @@ func (s *Service) GetPeer(ctx context.Context, id string) (*gen.Peer, error) {
 	}
 
 	switch peer.Type {
-	case gen.PeerType_POSTGRES:
+	case gen.PeerType_PEER_TYPE_POSTGRES:
 		var pgCfg gen.PostgresConfig
 		err = proto.Unmarshal(decrypted, &pgCfg)
 		if err != nil {
 			return nil, fmt.Errorf("failed to unmarshal postgres config: %w", err)
 		}
 		peer.Config = &gen.Peer_PostgresConfig{PostgresConfig: &pgCfg}
-	case gen.PeerType_CLICKHOUSE:
+	case gen.PeerType_PEER_TYPE_CLICKHOUSE:
 		var chCfg gen.ClickhouseConfig
 		err = proto.Unmarshal(decrypted, &chCfg)
 		if err != nil {
 			return nil, fmt.Errorf("failed to unmarshal clickhouse config: %w", err)
 		}
 		peer.Config = &gen.Peer_ClickhouseConfig{ClickhouseConfig: &chCfg}
-	case gen.PeerType_MYSQL:
+	case gen.PeerType_PEER_TYPE_MYSQL:
 		var mysqlCfg gen.MysqlConfig
 		err = proto.Unmarshal(decrypted, &mysqlCfg)
 		if err != nil {
@@ -192,11 +191,11 @@ func validatePeerTypeMatchesConfig(peer *gen.Peer) error {
 	var configType gen.PeerType
 	switch peer.Config.(type) {
 	case *gen.Peer_PostgresConfig:
-		configType = gen.PeerType_POSTGRES
+		configType = gen.PeerType_PEER_TYPE_POSTGRES
 	case *gen.Peer_ClickhouseConfig:
-		configType = gen.PeerType_CLICKHOUSE
+		configType = gen.PeerType_PEER_TYPE_CLICKHOUSE
 	case *gen.Peer_MysqlConfig:
-		configType = gen.PeerType_MYSQL
+		configType = gen.PeerType_PEER_TYPE_MYSQL
 	default:
 		return errs.BadRequest.WithMessage("unknown peer config type")
 	}

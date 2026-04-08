@@ -22,6 +22,7 @@ import (
 	sq "github.com/Masterminds/squirrel"
 	"github.com/stretchr/testify/suite"
 	"github.com/testcontainers/testcontainers-go"
+	"go.temporal.io/api/enums/v1"
 )
 
 type userRow struct {
@@ -203,7 +204,7 @@ func (s *GRPCE2ESuite) testCdcFlow(
 	})
 	s.Require().NoError(err)
 
-	s.lastWorkflowID = server.CdcFlowPrefix + flow.Id
+	s.lastWorkflowID = server.CdcFlowPrefix + flow.CdcFlow.Id
 
 	s.Require().Eventuallyf(
 		func() bool {
@@ -266,6 +267,76 @@ func (s *GRPCE2ESuite) testCdcFlow(
 		"cdc table=%s rows=%v err=%v",
 		tableName,
 		cdcRows,
+		cdcErr,
+	)
+
+	// pause cdc flow
+	_, err = s.env.APIClient.PauseCDCFlow(ctx, &gen.PauseCDCFlowRequest{
+		Id: flow.CdcFlow.Id,
+	})
+	s.Require().NoError(err)
+	// check that temporal workflow is cancelled
+	s.Require().Eventually(
+		func() bool {
+			desc, err := s.env.TemporalClient.DescribeWorkflowExecution(ctx, s.lastWorkflowID, "")
+			if err != nil {
+				return false
+			}
+			return desc.WorkflowExecutionInfo.Status == enums.WORKFLOW_EXECUTION_STATUS_CANCELED
+		},
+		30*time.Second,
+		1*time.Second,
+		"workflow should be cancelled after pausing flow",
+	)
+	// add some data to source while flow is paused
+	cdcRow2 := userRow{
+		ID:        4,
+		Name:      "dave",
+		IsActive:  true,
+		Age:       35,
+		Rating:    400,
+		Price:     0.99,
+		Score:     3.14159,
+		Birthday:  time.Date(1988, 7, 20, 0, 0, 0, 0, time.UTC),
+		CreatedAt: time.Date(2025, 7, 1, 9, 0, 0, 0, time.UTC),
+		Balance:   "500.00",
+		Bio:       `{"role":"user"}`,
+		Avatar:    []byte{0xDE, 0xAD, 0xBE, 0xEF},
+	}
+	insertSQL2, insertArgs2, err := sq.StatementBuilder.
+		PlaceholderFormat(dialect.PlaceholderFormat).
+		Insert(qualifiedName).
+		Columns(cols...).
+		Values(
+			cdcRow2.ID, cdcRow2.Name, cdcRow2.IsActive, cdcRow2.Age, cdcRow2.Rating,
+			cdcRow2.Price, cdcRow2.Score, cdcRow2.Birthday, cdcRow2.CreatedAt,
+			cdcRow2.Balance, cdcRow2.Bio, cdcRow2.Avatar,
+		).
+		ToSql()
+	s.Require().NoError(err)
+	_, err = sourceConn.ExecContext(ctx, insertSQL2, insertArgs2...)
+	s.Require().NoError(err)
+	// resume flow
+	_, err = s.env.APIClient.ResumeCDCFlow(ctx, &gen.ResumeCDCFlowRequest{
+		Id: flow.CdcFlow.Id,
+	})
+	s.Require().NoError(err)
+	expectedRows = append(expectedRows, cdcRow2)
+	// check that new data is replicated after resuming
+	var cdcRows2 []userRow
+	s.Require().Eventually(
+		func() bool {
+			cdcRows2, cdcErr = s.loadUsersTableFromClickhouse(ctx, tableName)
+			if cdcErr != nil {
+				return false
+			}
+			return userRowsEqual(expectedRows, cdcRows2)
+		},
+		45*time.Second,
+		1*time.Second,
+		"cdc after resume table=%s rows=%v err=%v",
+		tableName,
+		cdcRows2,
 		cdcErr,
 	)
 }

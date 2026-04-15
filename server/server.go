@@ -40,8 +40,12 @@ func (s *PeerdbServiceServer) CreatePeer(ctx context.Context, req *gen.CreatePee
 	return &gen.CreatePeerResponse{Peer: peer}, nil
 }
 
-func (s *PeerdbServiceServer) GetPeers(context.Context, *gen.GetPeersRequest) (*gen.GetPeersResponse, error) {
-	return nil, fmt.Errorf("not implemented")
+func (s *PeerdbServiceServer) GetPeers(ctx context.Context, _ *gen.GetPeersRequest) (*gen.GetPeersResponse, error) {
+	peers, err := s.peers.GetPeers(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.GetPeersResponse{Peers: peers}, nil
 }
 
 func cdcFlowId(flowId string) string {
@@ -65,8 +69,12 @@ func (s *PeerdbServiceServer) CreateCDCFlow(ctx context.Context, req *gen.Create
 	return &gen.CreateCDCFlowResponse{CdcFlow: f}, nil
 }
 
-func (s *PeerdbServiceServer) GetCDCFlows(context.Context, *gen.GetCDCFlowsRequest) (*gen.GetCDCFlowsResponse, error) {
-	return nil, fmt.Errorf("not implemented")
+func (s *PeerdbServiceServer) GetCDCFlows(ctx context.Context, _ *gen.GetCDCFlowsRequest) (*gen.GetCDCFlowsResponse, error) {
+	flows, err := s.flows.GetFlows(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.GetCDCFlowsResponse{CdcFlows: flows}, nil
 }
 
 func (s *PeerdbServiceServer) PauseCDCFlow(ctx context.Context, req *gen.PauseCDCFlowRequest) (*gen.PauseCDCFlowResponse, error) {

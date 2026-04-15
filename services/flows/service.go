@@ -139,6 +139,37 @@ func (s *Service) CreateFlow(ctx context.Context, flow *gen.CDCFlow) (*gen.CDCFl
 	return flow, nil
 }
 
+func (s *Service) GetFlows(ctx context.Context) ([]*gen.CDCFlow, error) {
+	sql, args, err := postgres.Sql.
+		Select("id", "name", "source", "destination", "status").
+		From(cdcFlowTable).
+		ToSql()
+	if err != nil {
+		return nil, fmt.Errorf("failed to build query: %w", err)
+	}
+
+	rows, err := s.pg.Query(ctx, sql, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute query: %w", err)
+	}
+	defer rows.Close()
+
+	var flows []*gen.CDCFlow
+	for rows.Next() {
+		var flow gen.CDCFlow
+		if err := rows.Scan(&flow.Id, &flow.Name, &flow.Source, &flow.Destination, &flow.Status); err != nil {
+			return nil, fmt.Errorf("failed to scan flow: %w", err)
+		}
+		flows = append(flows, &flow)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate flows: %w", err)
+	}
+
+	return flows, nil
+}
+
 func (s *Service) GetFlow(ctx context.Context, id string) (*gen.CDCFlow, error) {
 	sql, args, err := postgres.Sql.
 		Select("id", "name", "source", "destination", "config", "status").

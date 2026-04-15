@@ -1,0 +1,31 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug Worker",
+            "type": "go",
+            "request": "launch",
+            "mode": "auto",
+            "program": "${workspaceFolder}/cmd/worker",
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "POSTGRES_URL": "postgres://postgres:postgres@localhost:5432/peerdb?sslmode=disable",
+                "TEMPORAL_HOST_PORT": "localhost:7233",
+                "ENCRYPTION_KEY": "0123456789abcdef0123456789abcdef"
+            }
+        },
+        {
+            "name": "Debug API",
+            "type": "go",
+            "request": "launch",
+            "mode": "auto",
+            "program": "${workspaceFolder}/cmd/api",
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "POSTGRES_URL": "postgres://postgres:postgres@localhost:5432/peerdb?sslmode=disable",
+                "TEMPORAL_HOST_PORT": "localhost:7233",
+                "ENCRYPTION_KEY": "0123456789abcdef0123456789abcdef"
+            }
+        }
+    ]
+}

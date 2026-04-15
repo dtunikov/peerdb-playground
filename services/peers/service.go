@@ -135,6 +135,37 @@ func (s *Service) CreatePeer(ctx context.Context, peer *gen.Peer) (*gen.Peer, er
 	return peer, nil
 }
 
+func (s *Service) GetPeers(ctx context.Context) ([]*gen.Peer, error) {
+	sql, args, err := postgres.Sql.
+		Select("id", "name", "type").
+		From("peers").
+		ToSql()
+	if err != nil {
+		return nil, fmt.Errorf("failed to build query: %w", err)
+	}
+
+	rows, err := s.pg.Query(ctx, sql, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute query: %w", err)
+	}
+	defer rows.Close()
+
+	var peers []*gen.Peer
+	for rows.Next() {
+		var peer gen.Peer
+		if err := rows.Scan(&peer.Id, &peer.Name, &peer.Type); err != nil {
+			return nil, fmt.Errorf("failed to scan peer: %w", err)
+		}
+		peers = append(peers, &peer)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate peers: %w", err)
+	}
+
+	return peers, nil
+}
+
 func (s *Service) GetPeer(ctx context.Context, id string) (*gen.Peer, error) {
 	sql, args, err := postgres.Sql.
 		Select("id", "name", "type", "config").

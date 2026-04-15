@@ -92,6 +92,25 @@ func (s *GRPCE2ESuite) createClickHousePeer(ctx context.Context) string {
 	return destPeer.Peer.Id
 }
 
+func (s *GRPCE2ESuite) insertRows(ctx context.Context, db sqlutil.ExecContexter, dialect sourceDialect, qualifiedTableName string, rows []userRow) {
+	cols := []string{"id", "name", "is_active", "age", "rating", "price", "score", "birthday", "created_at", "balance", "bio", "avatar"}
+	insert := sq.StatementBuilder.
+		PlaceholderFormat(dialect.PlaceholderFormat).
+		Insert(qualifiedTableName).
+		Columns(cols...)
+	for _, r := range rows {
+		insert = insert.Values(
+			r.ID, r.Name, r.IsActive, r.Age, r.Rating,
+			r.Price, r.Score, r.Birthday, r.CreatedAt,
+			r.Balance, r.Bio, r.Avatar,
+		)
+	}
+	seedSQL, seedArgs, err := insert.ToSql()
+	s.Require().NoError(err)
+	_, err = db.ExecContext(ctx, seedSQL, seedArgs...)
+	s.Require().NoError(err)
+}
+
 func (s *GRPCE2ESuite) createAndSeedUsersTable(
 	ctx context.Context,
 	db sqlutil.ExecContexter,
@@ -128,23 +147,7 @@ func (s *GRPCE2ESuite) createAndSeedUsersTable(
 		},
 	}
 
-	cols := []string{"id", "name", "is_active", "age", "rating", "price", "score", "birthday", "created_at", "balance", "bio", "avatar"}
-	insert := sq.StatementBuilder.
-		PlaceholderFormat(dialect.PlaceholderFormat).
-		Insert(qualifiedName).
-		Columns(cols...)
-	for _, r := range seedRows {
-		insert = insert.Values(
-			r.ID, r.Name, r.IsActive, r.Age, r.Rating,
-			r.Price, r.Score, r.Birthday, r.CreatedAt,
-			r.Balance, r.Bio, r.Avatar,
-		)
-	}
-	seedSQL, seedArgs, err := insert.ToSql()
-	s.Require().NoError(err)
-	_, err = db.ExecContext(ctx, seedSQL, seedArgs...)
-	s.Require().NoError(err)
-
+	s.insertRows(ctx, db, dialect, qualifiedName, seedRows)
 	s.T().Cleanup(func() {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()

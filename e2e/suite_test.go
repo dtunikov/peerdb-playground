@@ -236,22 +236,9 @@ func (s *GRPCE2ESuite) testCdcFlow(
 		Bio:       `{"role":"admin"}`,
 		Avatar:    []byte{0xCA, 0xFE},
 	}
-	cols := []string{"id", "name", "is_active", "age", "rating", "price", "score", "birthday", "created_at", "balance", "bio", "avatar"}
-	insertSQL, insertArgs, err := sq.StatementBuilder.
-		PlaceholderFormat(dialect.PlaceholderFormat).
-		Insert(qualifiedName).
-		Columns(cols...).
-		Values(
-			cdcRow.ID, cdcRow.Name, cdcRow.IsActive, cdcRow.Age, cdcRow.Rating,
-			cdcRow.Price, cdcRow.Score, cdcRow.Birthday, cdcRow.CreatedAt,
-			cdcRow.Balance, cdcRow.Bio, cdcRow.Avatar,
-		).
-		ToSql()
-	s.Require().NoError(err)
-	_, err = sourceConn.ExecContext(ctx, insertSQL, insertArgs...)
-	s.Require().NoError(err)
-
+	s.insertRows(ctx, sourceConn, dialect, qualifiedName, []userRow{cdcRow})
 	expectedRows := append(seedRows, cdcRow)
+
 	var cdcErr error
 	var cdcRows []userRow
 	s.Require().Eventually(
@@ -288,6 +275,7 @@ func (s *GRPCE2ESuite) testCdcFlow(
 		1*time.Second,
 		"workflow should be cancelled after pausing flow",
 	)
+
 	// add some data to source while flow is paused
 	cdcRow2 := userRow{
 		ID:        4,
@@ -303,25 +291,14 @@ func (s *GRPCE2ESuite) testCdcFlow(
 		Bio:       `{"role":"user"}`,
 		Avatar:    []byte{0xDE, 0xAD, 0xBE, 0xEF},
 	}
-	insertSQL2, insertArgs2, err := sq.StatementBuilder.
-		PlaceholderFormat(dialect.PlaceholderFormat).
-		Insert(qualifiedName).
-		Columns(cols...).
-		Values(
-			cdcRow2.ID, cdcRow2.Name, cdcRow2.IsActive, cdcRow2.Age, cdcRow2.Rating,
-			cdcRow2.Price, cdcRow2.Score, cdcRow2.Birthday, cdcRow2.CreatedAt,
-			cdcRow2.Balance, cdcRow2.Bio, cdcRow2.Avatar,
-		).
-		ToSql()
-	s.Require().NoError(err)
-	_, err = sourceConn.ExecContext(ctx, insertSQL2, insertArgs2...)
-	s.Require().NoError(err)
+	s.insertRows(ctx, sourceConn, dialect, qualifiedName, []userRow{cdcRow2})
+	expectedRows = append(expectedRows, cdcRow2)
+
 	// resume flow
 	_, err = s.env.APIClient.ResumeCDCFlow(ctx, &gen.ResumeCDCFlowRequest{
 		Id: flow.CdcFlow.Id,
 	})
 	s.Require().NoError(err)
-	expectedRows = append(expectedRows, cdcRow2)
 	// check that new data is replicated after resuming
 	var cdcRows2 []userRow
 	s.Require().Eventually(

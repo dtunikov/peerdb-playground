@@ -1,15 +1,10 @@
 package e2e
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
-	"database/sql"
-	"encoding/json"
 	"log/slog"
-	"math"
 	"os"
-	"reflect"
 	"testing"
 	"time"
 
@@ -19,110 +14,10 @@ import (
 	"peerdb-playground/internal/sqlutil"
 	"peerdb-playground/server"
 
-	sq "github.com/Masterminds/squirrel"
 	"github.com/stretchr/testify/suite"
 	"github.com/testcontainers/testcontainers-go"
 	"go.temporal.io/api/enums/v1"
 )
-
-type userRow struct {
-	ID        int64
-	Name      string
-	IsActive  bool
-	Age       int16
-	Rating    int32
-	Price     float32
-	Score     float64
-	Birthday  time.Time
-	CreatedAt time.Time
-	Balance   string
-	Bio       string
-	Avatar    []byte
-}
-
-type sourceDialect struct {
-	Schema            string
-	PlaceholderFormat sq.PlaceholderFormat
-	// DDL is the CREATE TABLE column definitions (excluding the primary key column "id BIGINT PRIMARY KEY").
-	DDL string
-}
-
-var postgresDialect = sourceDialect{
-	Schema:            "public",
-	PlaceholderFormat: sq.Dollar,
-	DDL: `id BIGINT PRIMARY KEY,
-		name TEXT NOT NULL,
-		is_active BOOLEAN NOT NULL,
-		age SMALLINT NOT NULL,
-		rating INTEGER NOT NULL,
-		price REAL NOT NULL,
-		score DOUBLE PRECISION NOT NULL,
-		birthday DATE NOT NULL,
-		created_at TIMESTAMP NOT NULL,
-		balance NUMERIC(10,2) NOT NULL,
-		bio JSONB NOT NULL,
-		avatar BYTEA NOT NULL`,
-}
-
-func mysqlDialect(database string) sourceDialect {
-	return sourceDialect{
-		Schema:            database,
-		PlaceholderFormat: sq.Question,
-		DDL: `id BIGINT PRIMARY KEY,
-			name TEXT NOT NULL,
-			is_active TINYINT(1) NOT NULL,
-			age SMALLINT NOT NULL,
-			rating INT NOT NULL,
-			price FLOAT NOT NULL,
-			score DOUBLE NOT NULL,
-			birthday DATE NOT NULL,
-			created_at DATETIME NOT NULL,
-			balance DECIMAL(10,2) NOT NULL,
-			bio JSON NOT NULL,
-			avatar BLOB NOT NULL`,
-	}
-}
-
-func userRowsEqual(a, b []userRow) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i].ID != b[i].ID ||
-			a[i].Name != b[i].Name ||
-			a[i].IsActive != b[i].IsActive ||
-			a[i].Age != b[i].Age ||
-			a[i].Rating != b[i].Rating ||
-			math.Float32bits(a[i].Price) != math.Float32bits(b[i].Price) ||
-			math.Float64bits(a[i].Score) != math.Float64bits(b[i].Score) ||
-			!a[i].Birthday.Equal(b[i].Birthday) ||
-			!a[i].CreatedAt.Truncate(time.Second).Equal(b[i].CreatedAt.Truncate(time.Second)) ||
-			a[i].Balance != b[i].Balance ||
-			!jsonStringsEqual(a[i].Bio, b[i].Bio) ||
-			!bytes.Equal(a[i].Avatar, b[i].Avatar) {
-			return false
-		}
-	}
-	return true
-}
-
-func jsonStringsEqual(a, b string) bool {
-	if a == b {
-		return true
-	}
-
-	var av any
-	if err := json.Unmarshal([]byte(a), &av); err != nil {
-		return false
-	}
-
-	var bv any
-	if err := json.Unmarshal([]byte(b), &bv); err != nil {
-		return false
-	}
-
-	return reflect.DeepEqual(av, bv)
-}
 
 type GRPCE2ESuite struct {
 	suite.Suite
@@ -130,8 +25,6 @@ type GRPCE2ESuite struct {
 	ctx context.Context
 
 	env            *localenv.Environment
-	pgDB           *sql.DB
-	mysqlDB        *sql.DB
 	lastWorkflowID string
 }
 
@@ -142,7 +35,7 @@ func (s *GRPCE2ESuite) SetupSuite() {
 	testcontainers.SkipIfProviderIsNotHealthy(s.T())
 
 	s.ctx = context.Background()
-	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug})))
 
 	env, err := localenv.Start(s.ctx, localenv.Options{
 		TaskQueue:     taskQueue,
@@ -155,12 +48,14 @@ func (s *GRPCE2ESuite) SetupSuite() {
 	})
 	s.Require().NoError(err)
 	s.env = env
-	s.pgDB = env.PostgresSQL
-	s.mysqlDB = env.MySQLDB
 
 	s.T().Cleanup(func() {
 		s.Require().NoError(env.Close(context.Background()))
 	})
+}
+
+func TestGRPCE2ESuite(t *testing.T) {
+	suite.Run(t, new(GRPCE2ESuite))
 }
 
 func (s *GRPCE2ESuite) TearDownTest() {
@@ -186,9 +81,6 @@ func (s *GRPCE2ESuite) testCdcFlow(
 	defer cancel()
 
 	tableName, qualifiedName, seedRows := s.createAndSeedUsersTable(ctx, sourceConn, dialect)
-	var snapshotRows []userRow
-	var snapshotErr error
-
 	destPeerId := s.createClickHousePeer(ctx)
 
 	flow, err := s.env.APIClient.CreateCDCFlow(ctx, &gen.CreateCDCFlowRequest{
@@ -206,56 +98,19 @@ func (s *GRPCE2ESuite) testCdcFlow(
 
 	s.lastWorkflowID = server.CdcFlowPrefix + flow.CdcFlow.Id
 
-	s.Require().Eventuallyf(
-		func() bool {
-			snapshotRows, snapshotErr = s.loadUsersTableFromClickhouse(ctx, tableName)
-			if snapshotErr != nil {
-				return false
-			}
-			return userRowsEqual(seedRows, snapshotRows)
-		},
-		45*time.Second,
-		1*time.Second,
-		"snapshot table=%s rows=%v err=%v",
-		tableName,
-		snapshotRows,
-		snapshotErr,
-	)
+	s.waitForEqualRows(ctx, seedRows, tableName)
 
-	cdcRow := userRow{
-		ID:        3,
-		Name:      "carol",
-		IsActive:  false,
-		Age:       28,
-		Rating:    300,
-		Price:     3.14,
-		Score:     2.718281828,
-		Birthday:  time.Date(1998, 3, 15, 0, 0, 0, 0, time.UTC),
-		CreatedAt: time.Date(2025, 6, 1, 12, 0, 0, 0, time.UTC),
-		Balance:   "999.99",
-		Bio:       `{"role":"admin"}`,
-		Avatar:    []byte{0xCA, 0xFE},
-	}
+	// Warm up CDC before the main assertions so the test doesn't race the source stream startup.
+	warmupRow := randomUserRow()
+	s.insertRows(ctx, sourceConn, dialect, qualifiedName, []userRow{warmupRow})
+	expectedRows := append(seedRows, warmupRow)
+	s.waitForEqualRows(ctx, expectedRows, tableName)
+
+	cdcRow := randomUserRow()
 	s.insertRows(ctx, sourceConn, dialect, qualifiedName, []userRow{cdcRow})
-	expectedRows := append(seedRows, cdcRow)
+	expectedRows = append(expectedRows, cdcRow)
 
-	var cdcErr error
-	var cdcRows []userRow
-	s.Require().Eventually(
-		func() bool {
-			cdcRows, cdcErr = s.loadUsersTableFromClickhouse(ctx, tableName)
-			if cdcErr != nil {
-				return false
-			}
-			return userRowsEqual(expectedRows, cdcRows)
-		},
-		45*time.Second,
-		1*time.Second,
-		"cdc table=%s rows=%v err=%v",
-		tableName,
-		cdcRows,
-		cdcErr,
-	)
+	s.waitForEqualRows(ctx, expectedRows, tableName)
 
 	// pause cdc flow
 	_, err = s.env.APIClient.PauseCDCFlow(ctx, &gen.PauseCDCFlowRequest{
@@ -277,20 +132,7 @@ func (s *GRPCE2ESuite) testCdcFlow(
 	)
 
 	// add some data to source while flow is paused
-	cdcRow2 := userRow{
-		ID:        4,
-		Name:      "dave",
-		IsActive:  true,
-		Age:       35,
-		Rating:    400,
-		Price:     0.99,
-		Score:     3.14159,
-		Birthday:  time.Date(1988, 7, 20, 0, 0, 0, 0, time.UTC),
-		CreatedAt: time.Date(2025, 7, 1, 9, 0, 0, 0, time.UTC),
-		Balance:   "500.00",
-		Bio:       `{"role":"user"}`,
-		Avatar:    []byte{0xDE, 0xAD, 0xBE, 0xEF},
-	}
+	cdcRow2 := randomUserRow()
 	s.insertRows(ctx, sourceConn, dialect, qualifiedName, []userRow{cdcRow2})
 	expectedRows = append(expectedRows, cdcRow2)
 
@@ -299,39 +141,21 @@ func (s *GRPCE2ESuite) testCdcFlow(
 		Id: flow.CdcFlow.Id,
 	})
 	s.Require().NoError(err)
+
 	// check that new data is replicated after resuming
-	var cdcRows2 []userRow
-	s.Require().Eventually(
-		func() bool {
-			cdcRows2, cdcErr = s.loadUsersTableFromClickhouse(ctx, tableName)
-			if cdcErr != nil {
-				return false
-			}
-			return userRowsEqual(expectedRows, cdcRows2)
-		},
-		45*time.Second,
-		1*time.Second,
-		"cdc after resume table=%s rows=%v err=%v",
-		tableName,
-		cdcRows2,
-		cdcErr,
-	)
+	s.waitForEqualRows(ctx, expectedRows, tableName)
 }
 
 func (s *GRPCE2ESuite) TestCdcPostgres() {
 	sourcePeerId := s.createPostgresPeer(s.ctx)
-	s.testCdcFlow(s.ctx, sourcePeerId, s.pgDB, postgresDialect, &gen.CdcFlowConfig_PostgresSource{
+	s.testCdcFlow(s.ctx, sourcePeerId, s.env.PostgresSQL, postgresDialect, &gen.CdcFlowConfig_PostgresSource{
 		PostgresSource: &gen.PostgresSourceConfig{},
 	})
 }
 
 func (s *GRPCE2ESuite) TestCdcMySQL() {
 	sourcePeerID := s.createMySQLPeer(s.ctx)
-	s.testCdcFlow(s.ctx, sourcePeerID, s.mysqlDB, mysqlDialect(mysqlDatabase), &gen.CdcFlowConfig_MysqlSource{
+	s.testCdcFlow(s.ctx, sourcePeerID, s.env.MySQLDB, mysqlDialect(mysqlDatabase), &gen.CdcFlowConfig_MysqlSource{
 		MysqlSource: &gen.MysqlSourceConfig{},
 	})
-}
-
-func TestGRPCE2ESuite(t *testing.T) {
-	suite.Run(t, new(GRPCE2ESuite))
 }

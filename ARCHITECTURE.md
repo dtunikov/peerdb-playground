@@ -176,8 +176,8 @@ CdcFlowWorkflow (main)
 
 ```bash
 docker compose up -d    # Start pg-source, ch-dest, peerdb-postgres, temporal, temporal-ui
-go run ./cmd/api/       # Start API server on :8080
-go run ./cmd/worker/    # Start Temporal worker
+go run ./cmd/peerdb-playground -mode=api       # Start API server on :8080
+go run ./cmd/peerdb-playground -mode=worker    # Start Temporal worker
 
 # Temporal UI: http://localhost:8233
 ```

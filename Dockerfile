@@ -11,8 +11,7 @@ COPY . .
 
 RUN buf generate
 
-ARG TARGET=api
-RUN CGO_ENABLED=0 go build -o /bin/service ./cmd/${TARGET}
+RUN CGO_ENABLED=0 go build -o /bin/service ./cmd/peerdb-playground
 
 FROM gcr.io/distroless/static-debian12
 

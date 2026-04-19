@@ -106,12 +106,9 @@ jobs:
       - name: Run tests
         run: go test -count=1 -timeout 10m ./...
 
-  build-images:
-    name: Build & Push ${{ matrix.target }}
+  build-image:
+    name: Build & Push
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        target: [api, worker]
     steps:
       - uses: actions/checkout@v5
 
@@ -127,7 +124,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.IMAGE_BASE }}/${{ matrix.target }}
+          images: ${{ env.IMAGE_BASE }}
           tags: |
             type=sha,prefix=
             type=ref,event=branch
@@ -137,8 +134,7 @@ jobs:
         with:
           context: .
           push: true
-          build-args: TARGET=${{ matrix.target }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=${{ matrix.target }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.target }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

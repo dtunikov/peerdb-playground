@@ -46,8 +46,7 @@ services:
   api:
     build:
       context: .
-      args:
-        TARGET: api
+    command: ["-mode=api"]
     ports:
       - "8080:8080"
     volumes:
@@ -65,8 +64,7 @@ services:
   worker:
     build:
       context: .
-      args:
-        TARGET: worker
+    command: ["-mode=worker"]
     volumes:
       - ./config.yaml:/app/config.yaml:ro
     environment:

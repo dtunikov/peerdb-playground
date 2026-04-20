@@ -7,7 +7,6 @@ A Change Data Capture (CDC) tool that replicates data from source databases to d
 - **Initial snapshot** — full table copy from source to destination
 - **CDC streaming** — continuous replication of inserts, updates, and deletes (coming soon)
 - **Schema discovery** — automatically detects source table schemas and creates destination tables
-- **Parallel snapshots** — snapshot multiple tables concurrently with bounded parallelism
 - **At-least-once delivery** — safe against failures with automatic deduplication at the destination
 
 ## Supported Connectors

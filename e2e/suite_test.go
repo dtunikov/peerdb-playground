@@ -112,6 +112,12 @@ func (s *GRPCE2ESuite) testCdcFlow(
 
 	s.waitForEqualRows(ctx, expectedRows, tableName)
 
+	// Exercise delete: remove the first seed row and expect it to disappear from the destination.
+	deletedID := expectedRows[0].ID
+	s.deleteRows(ctx, sourceConn, dialect, qualifiedName, []int64{deletedID})
+	expectedRows = expectedRows[1:]
+	s.waitForEqualRows(ctx, expectedRows, tableName)
+
 	// pause cdc flow
 	_, err = s.env.APIClient.PauseCDCFlow(ctx, &gen.PauseCDCFlowRequest{
 		Id: flow.CdcFlow.Id,

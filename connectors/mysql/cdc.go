@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"hash/crc32"
 	"peerdb-playground/connectors"
+	"peerdb-playground/connectors/types"
 	mysqlpkg "peerdb-playground/pkg/mysql"
 	"strconv"
 	"strings"
@@ -182,6 +183,13 @@ func appendRowsEvent(
 			txn.records = append(txn.records, record)
 		}
 	case replication.DELETE_ROWS_EVENTv0, replication.DELETE_ROWS_EVENTv1, replication.DELETE_ROWS_EVENTv2:
+		for _, row := range event.Rows {
+			record, err := mysqlDeleteRecord(tableSchema, row, version)
+			if err != nil {
+				return err
+			}
+			txn.records = append(txn.records, record)
+		}
 	default:
 	}
 
@@ -213,6 +221,57 @@ func mysqlInsertRecord(tableSchema connectors.TableSchema, row []any, version ui
 	}
 
 	return connectors.InsertRecord{
+		BaseRecord: connectors.BaseRecord{
+			Table:   tableSchema.Table,
+			Version: version,
+		},
+		Values: values,
+	}, nil
+}
+
+func mysqlDeleteRecord(tableSchema connectors.TableSchema, row []any, version uint64) (connectors.DeleteRecord, error) {
+	if len(row) != len(tableSchema.Columns) {
+		return connectors.DeleteRecord{}, fmt.Errorf(
+			"mysql delete row column count mismatch for table %s: got %d want %d",
+			tableSchema.Table.String(),
+			len(row),
+			len(tableSchema.Columns),
+		)
+	}
+
+	hasPk := false
+	for _, col := range tableSchema.Columns {
+		if col.PrimaryKey {
+			hasPk = true
+			break
+		}
+	}
+	if !hasPk {
+		return connectors.DeleteRecord{}, fmt.Errorf(
+			"cannot process mysql delete for table %s without primary key",
+			tableSchema.Table.String(),
+		)
+	}
+
+	values := make([]connectors.ColumnValue, len(tableSchema.Columns))
+	for i, col := range tableSchema.Columns {
+		if !col.PrimaryKey {
+			values[i] = connectors.ColumnValue{Name: col.Name, Value: types.QValueNull{}}
+			continue
+		}
+		value, err := mysqlColumnValue(col.Name, col.Type, row[i])
+		if err != nil {
+			return connectors.DeleteRecord{}, fmt.Errorf(
+				"failed to convert mysql cdc delete value for table %s column %s: %w",
+				tableSchema.Table.String(),
+				col.Name,
+				err,
+			)
+		}
+		values[i] = value
+	}
+
+	return connectors.DeleteRecord{
 		BaseRecord: connectors.BaseRecord{
 			Table:   tableSchema.Table,
 			Version: version,

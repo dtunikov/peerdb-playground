@@ -106,6 +106,61 @@ func TestAppendRowsEventUsesUpdateAfterImage(t *testing.T) {
 	}
 }
 
+func TestAppendRowsEventDeleteNullsNonPkColumns(t *testing.T) {
+	txn := transactionBuffer{batchID: "uuid:1-2"}
+	tableSchema := connectors.TableSchema{
+		Table: connectors.TableIdentifier{Schema: "source", Name: "users"},
+		Columns: []connectors.ColumnSchema{
+			{Name: "id", Type: types.QTypeInt64{}, PrimaryKey: true},
+			{Name: "name", Type: types.QTypeString{}},
+		},
+	}
+	rowsEvent := &replication.RowsEvent{
+		Rows: [][]any{
+			{int64(7), "alice"},
+		},
+	}
+	rowsEvent.Table = &replication.TableMapEvent{Schema: []byte("source"), Table: []byte("users")}
+
+	if err := appendRowsEvent(&txn, rowsEvent, tableSchema, 456, replication.DELETE_ROWS_EVENTv2); err != nil {
+		t.Fatalf("appendRowsEvent returned error: %v", err)
+	}
+	if got, want := len(txn.records), 1; got != want {
+		t.Fatalf("unexpected record count: got %d want %d", got, want)
+	}
+	rec, ok := txn.records[0].(connectors.DeleteRecord)
+	if !ok {
+		t.Fatalf("expected DeleteRecord, got %T", txn.records[0])
+	}
+	if got, want := rec.Values[0].Value.Value(), int64(7); got != want {
+		t.Fatalf("expected pk preserved: got %v want %v", got, want)
+	}
+	if _, isNull := rec.Values[1].Value.(types.QValueNull); !isNull {
+		t.Fatalf("expected non-pk column to be QValueNull, got %T", rec.Values[1].Value)
+	}
+	if got, want := rec.Version, uint64(456); got != want {
+		t.Fatalf("unexpected record version: got %d want %d", got, want)
+	}
+}
+
+func TestAppendRowsEventDeleteErrorsWithoutPrimaryKey(t *testing.T) {
+	txn := transactionBuffer{batchID: "uuid:1-2"}
+	tableSchema := connectors.TableSchema{
+		Table: connectors.TableIdentifier{Schema: "source", Name: "events"},
+		Columns: []connectors.ColumnSchema{
+			{Name: "payload", Type: types.QTypeString{}},
+		},
+	}
+	rowsEvent := &replication.RowsEvent{
+		Rows: [][]any{{"hi"}},
+	}
+	rowsEvent.Table = &replication.TableMapEvent{Schema: []byte("source"), Table: []byte("events")}
+
+	if err := appendRowsEvent(&txn, rowsEvent, tableSchema, 1, replication.DELETE_ROWS_EVENTv2); err == nil {
+		t.Fatal("expected error for delete on table without primary key")
+	}
+}
+
 func TestAckValidatesGTIDSet(t *testing.T) {
 	connector := &SourceConnector{}
 	valid := "3E11FA47-71CA-11E1-9E33-C80AA9429562:23-24"

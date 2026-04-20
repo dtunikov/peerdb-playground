@@ -1,11 +1,11 @@
-FROM golang:1.26 AS builder
+FROM golang:1.26.1 AS builder
 
 WORKDIR /app
 
 COPY go.mod go.sum ./
 RUN go mod download
 
-RUN go install github.com/bufbuild/buf/cmd/buf@latest
+RUN go install github.com/bufbuild/buf/cmd/buf@v1.68.2
 
 COPY . .
 

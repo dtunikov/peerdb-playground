@@ -31,16 +31,6 @@ jobs:
       - name: Generate protobuf code
         run: buf generate
 
-      - name: Create exports.go
-        run: |
-          cat > gen/exports.go << 'EOF'
-          package gen
-
-          // CdcFlowConfigSourceConfig re-exports the generated oneof interface so other
-          // packages can accept any valid CdcFlowConfig source_config wrapper.
-          type CdcFlowConfigSourceConfig = isCdcFlowConfig_SourceConfig
-          EOF
-
       - uses: actions/upload-artifact@v6
         with:
           name: generated-code

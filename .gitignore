@@ -1,4 +1,6 @@
-gen/
+gen/*
+!gen/
+!gen/exports.go
 .vscode/settings.json
 benchmarks/
 __debug*

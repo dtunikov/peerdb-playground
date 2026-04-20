@@ -224,6 +224,123 @@ func TestMakeInsertRecordSkipsUnchangedToast(t *testing.T) {
 	}
 }
 
+func TestMakeDeleteRecordNullsNonPkColumns(t *testing.T) {
+	relations := map[uint32]*pglogrepl.RelationMessage{
+		1: {
+			RelationID:   1,
+			Namespace:    "public",
+			RelationName: "users",
+			Columns: []*pglogrepl.RelationMessageColumn{
+				{Name: "id", DataType: pgtype.Int4OID, Flags: 1},
+				{Name: "name", DataType: pgtype.TextOID},
+				{Name: "active", DataType: pgtype.BoolOID},
+			},
+		},
+	}
+	tableSchemas := map[string]connectors.TableSchema{
+		"public.users": {
+			Table: connectors.TableIdentifier{Schema: "public", Name: "users"},
+			Columns: []connectors.ColumnSchema{
+				{Name: "id", Type: types.QTypeInt32{}, PrimaryKey: true},
+				{Name: "name", Type: types.QTypeString{}},
+				{Name: "active", Type: types.QTypeBool{}},
+			},
+		},
+	}
+	tuple := &pglogrepl.TupleData{
+		Columns: []*pglogrepl.TupleDataColumn{
+			{DataType: pglogrepl.TupleDataTypeText, Data: []byte("42")},
+			{DataType: pglogrepl.TupleDataTypeText, Data: []byte("alice")},
+			{DataType: pglogrepl.TupleDataTypeText, Data: []byte("t")},
+		},
+	}
+
+	record, err := makeDeleteRecord(relations, tableSchemas, 1, tuple)
+	if err != nil {
+		t.Fatalf("makeDeleteRecord returned error: %v", err)
+	}
+	if got, want := record.Table.String(), "public.users"; got != want {
+		t.Fatalf("unexpected table: got %s want %s", got, want)
+	}
+	if got, want := len(record.Values), 3; got != want {
+		t.Fatalf("expected %d values, got %d", want, got)
+	}
+
+	if got, want := record.Values[0].Name, "id"; got != want {
+		t.Fatalf("unexpected pk column name: got %s want %s", got, want)
+	}
+	if got, want := record.Values[0].Value.Value(), int32(42); got != want {
+		t.Fatalf("expected pk value preserved: got %v want %v", got, want)
+	}
+
+	for _, idx := range []int{1, 2} {
+		if _, ok := record.Values[idx].Value.(types.QValueNull); !ok {
+			t.Fatalf("expected non-pk column %q to be QValueNull, got %T", record.Values[idx].Name, record.Values[idx].Value)
+		}
+	}
+	if got, want := record.Values[1].Name, "name"; got != want {
+		t.Fatalf("unexpected non-pk column name at idx 1: got %s want %s", got, want)
+	}
+	if got, want := record.Values[2].Name, "active"; got != want {
+		t.Fatalf("unexpected non-pk column name at idx 2: got %s want %s", got, want)
+	}
+}
+
+func TestMakeDeleteRecordErrorsWhenNoPrimaryKey(t *testing.T) {
+	relations := map[uint32]*pglogrepl.RelationMessage{
+		1: {
+			RelationID:   1,
+			Namespace:    "public",
+			RelationName: "events",
+			Columns: []*pglogrepl.RelationMessageColumn{
+				{Name: "payload", DataType: pgtype.TextOID},
+			},
+		},
+	}
+	tableSchemas := map[string]connectors.TableSchema{
+		"public.events": {
+			Table: connectors.TableIdentifier{Schema: "public", Name: "events"},
+			Columns: []connectors.ColumnSchema{
+				{Name: "payload", Type: types.QTypeString{}},
+			},
+		},
+	}
+	tuple := &pglogrepl.TupleData{
+		Columns: []*pglogrepl.TupleDataColumn{
+			{DataType: pglogrepl.TupleDataTypeText, Data: []byte("hi")},
+		},
+	}
+
+	if _, err := makeDeleteRecord(relations, tableSchemas, 1, tuple); err == nil {
+		t.Fatal("expected error for table without primary key, got nil")
+	}
+}
+
+func TestMakeDeleteRecordErrorsWhenTupleMissing(t *testing.T) {
+	relations := map[uint32]*pglogrepl.RelationMessage{
+		1: {
+			RelationID:   1,
+			Namespace:    "public",
+			RelationName: "users",
+			Columns: []*pglogrepl.RelationMessageColumn{
+				{Name: "id", DataType: pgtype.Int4OID, Flags: 1},
+			},
+		},
+	}
+	tableSchemas := map[string]connectors.TableSchema{
+		"public.users": {
+			Table: connectors.TableIdentifier{Schema: "public", Name: "users"},
+			Columns: []connectors.ColumnSchema{
+				{Name: "id", Type: types.QTypeInt32{}, PrimaryKey: true},
+			},
+		},
+	}
+
+	if _, err := makeDeleteRecord(relations, tableSchemas, 1, nil); err == nil {
+		t.Fatal("expected error for nil tuple, got nil")
+	}
+}
+
 func TestAckIsMonotonic(t *testing.T) {
 	connector := &SourceConnector{}
 

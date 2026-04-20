@@ -156,6 +156,20 @@ func (s *GRPCE2ESuite) insertRows(ctx context.Context, db sqlutil.ExecContexter,
 	s.Require().NoError(err)
 }
 
+func (s *GRPCE2ESuite) deleteRows(ctx context.Context, db sqlutil.ExecContexter, dialect sourceDialect, qualifiedTableName string, ids []int64) {
+	if len(ids) == 0 {
+		return
+	}
+	del := sq.StatementBuilder.
+		PlaceholderFormat(dialect.PlaceholderFormat).
+		Delete(qualifiedTableName).
+		Where(sq.Eq{"id": ids})
+	sqlStr, args, err := del.ToSql()
+	s.Require().NoError(err)
+	_, err = db.ExecContext(ctx, sqlStr, args...)
+	s.Require().NoError(err)
+}
+
 func (s *GRPCE2ESuite) createAndSeedUsersTable(
 	ctx context.Context,
 	db sqlutil.ExecContexter,

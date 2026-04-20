@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"peerdb-playground/connectors"
+	"peerdb-playground/connectors/types"
 	pg "peerdb-playground/pkg/postgres"
 	"strings"
 	"time"
@@ -34,7 +35,7 @@ func (e criticalReplicationError) Unwrap() error {
 }
 
 type transactionBuffer struct {
-	records []connectors.InsertRecord
+	records []connectors.Record
 }
 
 func (t *transactionBuffer) reset() {
@@ -200,7 +201,11 @@ func (c *SourceConnector) handleLogicalMessage(
 	case *pglogrepl.CommitMessage:
 		return c.flushTransaction(ctx, txn, msg.CommitLSN, ch)
 	case *pglogrepl.DeleteMessage:
-		c.logger.Debug("skipping delete event", "flowId", c.flowId, "relationId", msg.RelationID)
+		record, err := makeDeleteRecord(relations, tableSchemaByName, msg.RelationID, msg.OldTuple)
+		if err != nil {
+			return criticalReplication(err)
+		}
+		txn.records = append(txn.records, record)
 	case *pglogrepl.TruncateMessage:
 		c.logger.Debug("skipping truncate event", "flowId", c.flowId)
 	case *pglogrepl.TypeMessage:
@@ -227,10 +232,13 @@ func (c *SourceConnector) flushTransaction(
 		return nil
 	}
 
+	var err error
 	records := make([]connectors.Record, len(txn.records))
 	for i, record := range txn.records {
-		record.Version = uint64(commitLSN)
-		records[i] = record
+		records[i], err = connectors.RecordWithVersion(record, uint64(commitLSN))
+		if err != nil {
+			return criticalReplication(fmt.Errorf("failed to add version to record for LSN %s: %w", commitLSN, err))
+		}
 	}
 
 	batch := connectors.RecordBatch{
@@ -349,6 +357,63 @@ func makeInsertRecord(
 		},
 		Values: values,
 	}, false, nil
+}
+
+func makeDeleteRecord(
+	relations map[uint32]*pglogrepl.RelationMessage,
+	tableSchemaByName map[string]connectors.TableSchema,
+	relationID uint32,
+	tuple *pglogrepl.TupleData,
+) (connectors.DeleteRecord, error) {
+	rel, err := relationForID(relations, relationID)
+	if err != nil {
+		return connectors.DeleteRecord{}, err
+	}
+
+	if tuple == nil {
+		return connectors.DeleteRecord{}, fmt.Errorf("tuple is missing for delete message: %s", relationQualifiedName(rel))
+	}
+
+	tableSchema, err := schemaForRelation(rel, tableSchemaByName)
+	if err != nil {
+		return connectors.DeleteRecord{}, err
+	}
+
+	values, skip, err := decodeTupleColumns(rel, tableSchema, tuple)
+	if err != nil {
+		return connectors.DeleteRecord{}, err
+	}
+	if skip {
+		return connectors.DeleteRecord{}, fmt.Errorf("unexpected TOAST skip on delete for %s", relationQualifiedName(rel))
+	}
+
+	hasPk := false
+	pkByName := map[string]bool{}
+	for _, c := range tableSchema.Columns {
+		if c.PrimaryKey {
+			pkByName[c.Name] = true
+			hasPk = true
+		}
+	}
+	if !hasPk {
+		return connectors.DeleteRecord{}, fmt.Errorf("cannot process delete record for relation %s without primary key", relationQualifiedName(rel))
+	}
+
+	for idx, col := range rel.Columns {
+		if !pkByName[col.Name] {
+			values[idx] = connectors.ColumnValue{
+				Name:  col.Name,
+				Value: types.QValueNull{},
+			}
+		}
+	}
+
+	return connectors.DeleteRecord{
+		BaseRecord: connectors.BaseRecord{
+			Table: tableSchema.Table,
+		},
+		Values: values,
+	}, nil
 }
 
 func decodeTupleColumns(

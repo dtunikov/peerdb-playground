@@ -9,6 +9,10 @@ updates:
       go-minor:
         update-types:
           - minor
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - version-update:semver-patch
 
   - package-ecosystem: github-actions
     directory: /
@@ -18,11 +22,19 @@ updates:
       actions-minor:
         update-types:
           - minor
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - version-update:semver-patch
 
   - package-ecosystem: docker
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - version-update:semver-patch
 
   - package-ecosystem: docker-compose
     directory: /
@@ -32,3 +44,7 @@ updates:
       compose-minor:
         update-types:
           - minor
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - version-update:semver-patch

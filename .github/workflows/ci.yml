@@ -53,6 +53,17 @@ jobs:
           name: generated-code
           path: gen/
 
+      - name: gofmt
+        run: |
+          diff=$(gofmt -l .)
+          if [ -n "$diff" ]; then
+            echo "The following files are not gofmt-formatted:"
+            echo "$diff"
+            echo
+            echo "Run 'gofmt -w .' (or 'just vet') to fix."
+            exit 1
+          fi
+
       - name: Go vet
         run: go vet ./...
 

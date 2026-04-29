@@ -44,6 +44,7 @@ services:
       - temporal
 
   api:
+    profiles: ["api"]
     build:
       context: .
     command: ["-mode=api"]
@@ -62,6 +63,7 @@ services:
         condition: service_healthy
 
   worker:
+    profiles: ["worker"]
     build:
       context: .
     command: ["-mode=worker"]

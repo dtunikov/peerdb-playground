@@ -20,8 +20,17 @@ A Change Data Capture (CDC) tool that replicates data from source databases to d
 
 ```bash
 # Start all components (api and worker will be built from source)
-docker compose up -d
+docker compose --profile api --profile worker up -d
 ```
+
+The `api` and `worker` services live behind compose profiles so you can opt out of either — for example, run only the API and start a worker locally via `go run`:
+
+```bash
+docker compose --profile api up -d
+go run ./cmd/peerdb-playground -mode=worker
+```
+
+If you use [just](https://github.com/casey/just), `just peerdb-up` is the equivalent of the full command above; pass `api`, `worker`, or `none` to start a subset.
 
 ### Create a CDC flow
 

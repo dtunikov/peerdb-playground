@@ -3,7 +3,7 @@ module peerdb-playground
 go 1.26.1
 
 require (
-	connectrpc.com/connect v1.19.1
+	connectrpc.com/connect v1.19.2
 	connectrpc.com/grpcreflect v1.3.0
 	github.com/ClickHouse/clickhouse-go/v2 v2.45.0
 	github.com/Masterminds/squirrel v1.5.4

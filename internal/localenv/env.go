@@ -237,7 +237,7 @@ func (e *Environment) startPostgres(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	e.PostgresPort = uint32(port.Int())
+	e.PostgresPort = uint32(port.Num())
 
 	connString, err := pg.ConnectionString(ctx, "sslmode=disable")
 	if err != nil {
@@ -303,7 +303,7 @@ func (e *Environment) startMySQL(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	e.MySQLPort = uint32(port.Int())
+	e.MySQLPort = uint32(port.Num())
 
 	var db *sql.DB
 	deadline := time.Now().Add(2 * time.Minute)
@@ -356,7 +356,7 @@ func (e *Environment) startClickHouse(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	e.ClickHousePort = uint32(mappedPort.Int())
+	e.ClickHousePort = uint32(mappedPort.Num())
 
 	var conn driver.Conn
 	deadline := time.Now().Add(45 * time.Second)

@@ -20,7 +20,7 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/testcontainers/testcontainers-go v0.42.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.42.0
-	go.temporal.io/api v1.62.7
+	go.temporal.io/api v1.62.11
 	go.temporal.io/sdk v1.42.0
 	golang.org/x/net v0.53.0
 	google.golang.org/protobuf v1.36.11

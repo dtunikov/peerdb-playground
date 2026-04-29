@@ -6,20 +6,18 @@ updates:
       interval: weekly
     open-pull-requests-limit: 10
     groups:
-      go-minor-patch:
+      go-minor:
         update-types:
           - minor
-          - patch
 
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
     groups:
-      actions-minor-patch:
+      actions-minor:
         update-types:
           - minor
-          - patch
 
   - package-ecosystem: docker
     directory: /
@@ -31,7 +29,6 @@ updates:
     schedule:
       interval: weekly
     groups:
-      compose-minor-patch:
+      compose-minor:
         update-types:
           - minor
-          - patch

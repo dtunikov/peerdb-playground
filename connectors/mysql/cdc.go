@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"hash/crc32"
 	"peerdb-playground/connectors"
-	"peerdb-playground/connectors/types"
 	mysqlpkg "peerdb-playground/pkg/mysql"
 	"strconv"
 	"strings"
@@ -255,10 +254,6 @@ func mysqlDeleteRecord(tableSchema connectors.TableSchema, row []any, version ui
 
 	values := make([]connectors.ColumnValue, len(tableSchema.Columns))
 	for i, col := range tableSchema.Columns {
-		if !col.PrimaryKey {
-			values[i] = connectors.ColumnValue{Name: col.Name, Value: types.QValueNull{}}
-			continue
-		}
 		value, err := mysqlColumnValue(col.Name, col.Type, row[i])
 		if err != nil {
 			return connectors.DeleteRecord{}, fmt.Errorf(

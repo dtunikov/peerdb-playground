@@ -70,7 +70,9 @@ func (c *DestinationConnector) Setup(ctx context.Context, tables []connectors.Ta
 		// or in case of duplicate cdc event writes (e.g. due to at-least-once semantics of the source connector)
 		cols = append(cols, "_version UInt64")
 		cols = append(cols, "_ingested_at DateTime64(3, 'UTC') DEFAULT now64(3)")
-		cols = append(cols, "_is_deleted UInt8 DEFAULT 0") // for soft deletes, since clickhouse doesn't support hard deletes well
+		// for soft deletes, since clickhouse doesn't support hard deletes well
+		// client would have to filter with _is_deleted=0 to get only non deleted rows
+		cols = append(cols, "_is_deleted UInt8 DEFAULT 0")
 
 		orderBy := "tuple()" // default if no pk cols is defined, rather rare case
 		if len(pkCols) > 0 {

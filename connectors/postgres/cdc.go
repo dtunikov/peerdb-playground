@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"peerdb-playground/connectors"
-	"peerdb-playground/connectors/types"
 	pg "peerdb-playground/pkg/postgres"
 	"strings"
 	"time"
@@ -388,24 +387,14 @@ func makeDeleteRecord(
 	}
 
 	hasPk := false
-	pkByName := map[string]bool{}
 	for _, c := range tableSchema.Columns {
 		if c.PrimaryKey {
-			pkByName[c.Name] = true
 			hasPk = true
+			break
 		}
 	}
 	if !hasPk {
 		return connectors.DeleteRecord{}, fmt.Errorf("cannot process delete record for relation %s without primary key", relationQualifiedName(rel))
-	}
-
-	for idx, col := range rel.Columns {
-		if !pkByName[col.Name] {
-			values[idx] = connectors.ColumnValue{
-				Name:  col.Name,
-				Value: types.QValueNull{},
-			}
-		}
 	}
 
 	return connectors.DeleteRecord{

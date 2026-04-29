@@ -106,7 +106,7 @@ func TestAppendRowsEventUsesUpdateAfterImage(t *testing.T) {
 	}
 }
 
-func TestAppendRowsEventDeleteNullsNonPkColumns(t *testing.T) {
+func TestAppendRowsEventDeletePreservesPreImage(t *testing.T) {
 	txn := transactionBuffer{batchID: "uuid:1-2"}
 	tableSchema := connectors.TableSchema{
 		Table: connectors.TableIdentifier{Schema: "source", Name: "users"},
@@ -135,8 +135,8 @@ func TestAppendRowsEventDeleteNullsNonPkColumns(t *testing.T) {
 	if got, want := rec.Values[0].Value.Value(), int64(7); got != want {
 		t.Fatalf("expected pk preserved: got %v want %v", got, want)
 	}
-	if _, isNull := rec.Values[1].Value.(types.QValueNull); !isNull {
-		t.Fatalf("expected non-pk column to be QValueNull, got %T", rec.Values[1].Value)
+	if got, want := rec.Values[1].Value.Value(), "alice"; got != want {
+		t.Fatalf("expected non-pk pre-image preserved: got %v want %v", got, want)
 	}
 	if got, want := rec.Version, uint64(456); got != want {
 		t.Fatalf("unexpected record version: got %d want %d", got, want)

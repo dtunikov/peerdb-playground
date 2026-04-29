@@ -380,7 +380,7 @@ func (s *GRPCE2ESuite) debugDumpClickhouse(ctx context.Context, tableName string
 
 func (s *GRPCE2ESuite) loadUsersTableFromClickhouse(ctx context.Context, tableName string) ([]userRow, error) {
 	rows, err := s.env.ClickHouseConn.Query(ctx, fmt.Sprintf(
-		`SELECT id, name, is_active, age, rating, price, score, birthday, created_at, balance, bio, avatar FROM "%s" FINAL ORDER BY id`,
+		`SELECT id, name, is_active, age, rating, price, score, birthday, created_at, balance, bio, avatar FROM "%s" FINAL WHERE _is_deleted = 0 ORDER BY id`,
 		tableName,
 	))
 	if err != nil {

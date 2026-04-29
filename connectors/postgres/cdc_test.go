@@ -224,7 +224,7 @@ func TestMakeInsertRecordSkipsUnchangedToast(t *testing.T) {
 	}
 }
 
-func TestMakeDeleteRecordNullsNonPkColumns(t *testing.T) {
+func TestMakeDeleteRecordPreservesPreImage(t *testing.T) {
 	relations := map[uint32]*pglogrepl.RelationMessage{
 		1: {
 			RelationID:   1,
@@ -273,16 +273,17 @@ func TestMakeDeleteRecordNullsNonPkColumns(t *testing.T) {
 		t.Fatalf("expected pk value preserved: got %v want %v", got, want)
 	}
 
-	for _, idx := range []int{1, 2} {
-		if _, ok := record.Values[idx].Value.(types.QValueNull); !ok {
-			t.Fatalf("expected non-pk column %q to be QValueNull, got %T", record.Values[idx].Name, record.Values[idx].Value)
-		}
-	}
 	if got, want := record.Values[1].Name, "name"; got != want {
 		t.Fatalf("unexpected non-pk column name at idx 1: got %s want %s", got, want)
 	}
+	if got, want := record.Values[1].Value.Value(), "alice"; got != want {
+		t.Fatalf("expected non-pk pre-image preserved: got %v want %v", got, want)
+	}
 	if got, want := record.Values[2].Name, "active"; got != want {
 		t.Fatalf("unexpected non-pk column name at idx 2: got %s want %s", got, want)
+	}
+	if got, want := record.Values[2].Value.Value(), true; got != want {
+		t.Fatalf("expected non-pk pre-image preserved: got %v want %v", got, want)
 	}
 }
 

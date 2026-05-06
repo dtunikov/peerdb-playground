@@ -274,12 +274,3 @@ func TestRunCdcStreamFlushesCheckpointOnlyBatch(t *testing.T) {
 		t.Fatalf("unexpected checkpoint-only persisted value: got %s want %s", got, want)
 	}
 }
-
-func TestResolveSourceCheckpointPrefersSavedValue(t *testing.T) {
-	if got, want := resolveSourceCheckpoint("saved", "initial"), "saved"; got != want {
-		t.Fatalf("unexpected resolved checkpoint: got %s want %s", got, want)
-	}
-	if got, want := resolveSourceCheckpoint("", "initial"), "initial"; got != want {
-		t.Fatalf("unexpected fallback checkpoint: got %s want %s", got, want)
-	}
-}

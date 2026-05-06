@@ -84,7 +84,9 @@ func (a *Activities) CdcStreamActivity(ctx context.Context, input CdcStreamActiv
 	if err != nil {
 		return fmt.Errorf("failed to load source checkpoint: %w", err)
 	}
-	checkpoint = resolveSourceCheckpoint(checkpoint, input.InitialSourceCheckpoint)
+	if checkpoint == "" {
+		checkpoint = input.InitialSourceCheckpoint
+	}
 
 	srcConn, err := newSourceConnector(ctx, input.FlowId, source, flow.GetConfig(), logger, checkpoint)
 	if err != nil {
@@ -159,7 +161,7 @@ func runCdcStream(
 
 			logger.Debug("buffering cdc batch", "batchId", batch.BatchId, "records", len(batch.Records))
 			pending.add(batch)
-			if pending.recordCount >= cfg.maxBatchSize {
+			if len(pending.records) >= cfg.maxBatchSize {
 				// flush if batch size exceeds threshold
 				if err := flushCdcBatch(ctx, srcConn, destConn, cfg, &pending, logger); err != nil {
 					return err
@@ -171,7 +173,6 @@ func runCdcStream(
 
 type cdcBatchAccumulator struct {
 	highestBatchID string
-	recordCount    int
 	records        []connectors.Record
 }
 
@@ -179,12 +180,7 @@ func (a *cdcBatchAccumulator) add(batch connectors.RecordBatch) {
 	if batch.BatchId != "" {
 		a.highestBatchID = batch.BatchId
 	}
-	a.recordCount += len(batch.Records)
 	a.records = append(a.records, batch.Records...)
-}
-
-func (a *cdcBatchAccumulator) empty() bool {
-	return a.recordCount == 0 && a.highestBatchID == ""
 }
 
 func (a *cdcBatchAccumulator) drain() connectors.RecordBatch {
@@ -193,7 +189,6 @@ func (a *cdcBatchAccumulator) drain() connectors.RecordBatch {
 		Records: a.records,
 	}
 	a.highestBatchID = ""
-	a.recordCount = 0
 	a.records = nil
 	return batch
 }
@@ -206,7 +201,7 @@ func flushCdcBatch(
 	pending *cdcBatchAccumulator,
 	logger *slog.Logger,
 ) error {
-	if pending.empty() {
+	if len(pending.records) == 0 {
 		return nil
 	}
 
@@ -239,11 +234,4 @@ func flushCdcBatch(
 func isNonRetryableCdcError(err error) bool {
 	var appErr *temporal.ApplicationError
 	return errors.As(err, &appErr) && appErr.NonRetryable()
-}
-
-func resolveSourceCheckpoint(savedCheckpoint, initialCheckpoint string) string {
-	if savedCheckpoint != "" {
-		return savedCheckpoint
-	}
-	return initialCheckpoint
 }

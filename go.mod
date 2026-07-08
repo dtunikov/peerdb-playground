@@ -21,7 +21,7 @@ require (
 	github.com/testcontainers/testcontainers-go v0.43.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.43.0
 	go.temporal.io/api v1.63.1
-	go.temporal.io/sdk v1.45.0
+	go.temporal.io/sdk v1.46.0
 	golang.org/x/net v0.56.0
 	google.golang.org/protobuf v1.36.11
 )

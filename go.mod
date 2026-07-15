@@ -8,7 +8,7 @@ require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.47.0
 	github.com/Masterminds/squirrel v1.5.4
 	github.com/caarlos0/env/v11 v11.4.0
-	github.com/go-mysql-org/go-mysql v1.15.0
+	github.com/go-mysql-org/go-mysql v1.16.0
 	github.com/go-sql-driver/mysql v1.10.0
 	github.com/goccy/go-yaml v1.19.2
 	github.com/golang-migrate/migrate/v4 v4.19.1
@@ -22,7 +22,7 @@ require (
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.43.0
 	go.temporal.io/api v1.63.1
 	go.temporal.io/sdk v1.46.0
-	golang.org/x/net v0.56.0
+	golang.org/x/net v0.57.0
 	google.golang.org/protobuf v1.36.11
 )
 
@@ -105,10 +105,10 @@ require (
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.28.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
-	golang.org/x/crypto v0.53.0 // indirect
-	golang.org/x/sync v0.21.0 // indirect
-	golang.org/x/sys v0.46.0 // indirect
-	golang.org/x/text v0.38.0 // indirect
+	golang.org/x/crypto v0.54.0 // indirect
+	golang.org/x/sync v0.22.0 // indirect
+	golang.org/x/sys v0.47.0 // indirect
+	golang.org/x/text v0.40.0 // indirect
 	golang.org/x/time v0.12.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260120221211-b8f7ae30c516 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260120221211-b8f7ae30c516 // indirect

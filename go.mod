@@ -16,12 +16,12 @@ require (
 	github.com/jackc/pglogrepl v0.0.0-20251213150135-2e8d0df862c1
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
-	github.com/shopspring/decimal v1.5.0
+	github.com/shopspring/decimal v1.6.0
 	github.com/stretchr/testify v1.12.1
 	github.com/testcontainers/testcontainers-go v0.44.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.44.0
-	go.temporal.io/api v1.63.5
-	go.temporal.io/sdk v1.49.0
+	go.temporal.io/api v1.64.0
+	go.temporal.io/sdk v1.50.0
 	golang.org/x/net v0.61.0
 	google.golang.org/protobuf v1.36.11
 )

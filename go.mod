@@ -22,7 +22,7 @@ require (
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.45.0
 	go.temporal.io/api v1.64.3
 	go.temporal.io/sdk v1.51.0
-	golang.org/x/net v0.62.0
+	golang.org/x/net v0.63.0
 	google.golang.org/protobuf v1.36.11
 )
 
@@ -104,10 +104,10 @@ require (
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.28.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
-	golang.org/x/crypto v0.58.0 // indirect
-	golang.org/x/sync v0.24.0 // indirect
-	golang.org/x/sys v0.49.0 // indirect
-	golang.org/x/text v0.43.0 // indirect
+	golang.org/x/crypto v0.59.0 // indirect
+	golang.org/x/sync v0.25.0 // indirect
+	golang.org/x/sys v0.50.0 // indirect
+	golang.org/x/text v0.44.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260630182238-925bb5da69e7 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260630182238-925bb5da69e7 // indirect
